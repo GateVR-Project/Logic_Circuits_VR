@@ -1,0 +1,17 @@
+{
+    "name": "GateVR",
+    "rootNamespace": "GateVR",
+    "references": [
+        "GUID:548055e3381b4f87bc834ddfb4c06aac",
+        "GUID:fdcb14965ffa499e89f6e8a34e6bd595"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
