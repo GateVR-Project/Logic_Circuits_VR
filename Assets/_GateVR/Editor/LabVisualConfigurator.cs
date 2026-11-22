@@ -87,6 +87,7 @@ namespace GateVR.EditorTools
             try
             {
                 float support = ResolveSupport(scene);
+                PlaceCanvas();
                 BuildBoard(scene, support);
                 for (int i = 0; i < switches.Length; i++)
                     BuildSwitch(switches[i], support, errors);
@@ -145,6 +146,12 @@ namespace GateVR.EditorTools
 
             for (int i = 0; i < outputs.Length; i++)
                 ok &= PropertyExists(outputs[i], "highlightRenderer", errors);
+            for (int i = 0; i < outputs.Length; i++)
+                ok &= PropertyExists(outputs[i], "connectionAnchor", errors);
+
+            InputPinView[] inputPins = UnityEngine.Object.FindObjectsByType<InputPinView>();
+            for (int i = 0; i < inputPins.Length; i++)
+                ok &= PropertyExists(inputPins[i], "connectionAnchor", errors);
 
             return ok;
         }
@@ -293,14 +300,21 @@ namespace GateVR.EditorTools
                 LabVisualLibrary.Metal);
 
             string mark = host.name.EndsWith("_A") ? "A" : "B";
+            OutputPinView switchPin = host.GetComponentInChildren<OutputPinView>();
+            if (switchPin != null)
+                PlacePin(switchPin.transform, new Vector3(0.74f, bodyY, 0f), 0.52f);
+
             LabVisualLibrary.Label(
                 visuals, mark,
-                new Vector3(-0.02f, bodyY, -0.27f),
-                Quaternion.Euler(0f, 180f, 0f),
-                0.4f,
+                new Vector3(-0.02f, bodyY, -0.3f),
+                0.36f,
                 new Color(0.93f, 0.95f, 0.9f));
 
-            Lead(visuals, new Vector3(0.26f, bodyY, 0f), new Vector3(0.66f, bodyY, 0f), 0.05f);
+            if (switchPin != null)
+            {
+                Vector3 pin = switchPin.transform.localPosition;
+                Lead(visuals, new Vector3(0.28f, pin.y, pin.z), pin + new Vector3(-0.08f, 0f, 0f), 0.045f);
+            }
             LabVisualLibrary.HideRootMesh(host.gameObject);
             LabVisualLibrary.FitBox(host.gameObject, new Vector3(-0.02f, bottom + 0.32f, 0f), new Vector3(0.84f, 0.64f, 0.72f));
             MeshRenderer rockerRenderer = rocker.GetComponent<MeshRenderer>();
@@ -317,42 +331,50 @@ namespace GateVR.EditorTools
             float bottom = LabVisualLibrary.LocalBottom(host, support);
             Transform visuals = LabVisualLibrary.ReplaceVisuals(host);
             const float height = 0.28f;
+            const float bodyDepth = 0.58f;
             float bodyY = bottom + height * 0.5f;
-            LabVisualLibrary.Part(visuals, PrimitiveType.Cube, "Capsula", new Vector3(0f, bodyY, 0f), new Vector3(0.98f, height, 0.36f), Quaternion.identity, LabVisualLibrary.Housing);
-            LabVisualLibrary.Part(visuals, PrimitiveType.Cube, "Tapa", new Vector3(0f, bodyY + height * 0.28f, 0f), new Vector3(0.72f, height * 0.28f, 0.22f), Quaternion.identity, LabVisualLibrary.HousingDark);
+            PlaceGatePins(host, bodyY);
+            LabVisualLibrary.Part(visuals, PrimitiveType.Cube, "Capsula", new Vector3(0f, bodyY, 0f), new Vector3(0.98f, height, bodyDepth), Quaternion.identity, LabVisualLibrary.Housing);
+            LabVisualLibrary.Part(visuals, PrimitiveType.Cube, "Tapa", new Vector3(0f, bodyY + height * 0.28f, 0f), new Vector3(0.72f, height * 0.28f, 0.28f), Quaternion.identity, LabVisualLibrary.HousingDark);
             LabVisualLibrary.Part(visuals, PrimitiveType.Sphere, "Muesca", new Vector3(-0.42f, bodyY + height * 0.35f, 0f), Vector3.one * 0.08f, Quaternion.identity, LabVisualLibrary.HousingDark);
 
-            string gateName = view.Type.ToString();
+            float labelY = bodyY + height * 0.62f;
             LabVisualLibrary.Label(
-                visuals, gateName,
-                new Vector3(0.05f, bodyY + height * 0.52f, 0f),
-                Quaternion.Euler(-68f, 0f, 0f),
-                0.55f,
+                visuals, view.Type.ToString(),
+                new Vector3(0f, labelY, 0f),
+                0.42f,
                 new Color(0.95f, 0.93f, 0.78f));
 
             InputPinView[] ports = host.GetComponentsInChildren<InputPinView>();
             for (int i = 0; i < ports.Length; i++)
             {
+                if (ports[i].IsLedInput)
+                    continue;
+
                 Vector3 port = ports[i].transform.localPosition;
                 string portName = ports[i].IsPortB ? "B" : "A";
-                Vector3 label = Vector3.Lerp(new Vector3(0f, bodyY + height * 0.55f, 0f), port, 0.42f);
-                label.y = bodyY + height * 0.55f;
-                LabVisualLibrary.Label(visuals, portName, label, Quaternion.Euler(-68f, 0f, 0f), 0.28f, Color.white);
-                Lead(visuals, new Vector3(Mathf.Sign(port.x) * 0.42f, bodyY, port.z * 0.35f), port * 0.9f, 0.045f);
+                LabVisualLibrary.Label(
+                    visuals, portName,
+                    new Vector3(-0.18f, labelY, port.z),
+                    0.24f,
+                    Color.white);
+                Lead(visuals, new Vector3(-0.49f, port.y, port.z), port + new Vector3(0.06f, 0f, 0f), 0.04f);
             }
 
-            OutputPinView[] outputs = host.GetComponentsInChildren<OutputPinView>();
-            for (int i = 0; i < outputs.Length; i++)
+            OutputPinView[] gateOutputs = host.GetComponentsInChildren<OutputPinView>();
+            for (int i = 0; i < gateOutputs.Length; i++)
             {
-                Vector3 port = outputs[i].transform.localPosition;
-                Vector3 label = Vector3.Lerp(new Vector3(0f, bodyY + height * 0.55f, 0f), port, 0.38f);
-                label.y = bodyY + height * 0.55f;
-                LabVisualLibrary.Label(visuals, "OUTPUT", label, Quaternion.Euler(-68f, 0f, 0f), 0.46f, new Color(1f, 0.86f, 0.45f));
-                Lead(visuals, new Vector3(Mathf.Sign(port.x) * 0.42f, bodyY, port.z * 0.2f), port * 0.9f, 0.045f);
+                Vector3 port = gateOutputs[i].transform.localPosition;
+                LabVisualLibrary.Label(
+                    visuals, "OUTPUT",
+                    new Vector3(0.2f, labelY, 0f),
+                    0.4f,
+                    new Color(1f, 0.86f, 0.45f));
+                Lead(visuals, new Vector3(0.49f, port.y, port.z), port + new Vector3(-0.06f, 0f, 0f), 0.04f);
             }
 
             LabVisualLibrary.HideRootMesh(host.gameObject);
-            LabVisualLibrary.FitBox(host.gameObject, new Vector3(0f, bodyY, 0f), new Vector3(0.98f, height, 0.36f));
+            LabVisualLibrary.FitBox(host.gameObject, new Vector3(0f, bodyY, 0f), new Vector3(0.98f, height, bodyDepth));
         }
 
         static void BuildLed(LedView view, float support, StringBuilder errors)
@@ -379,12 +401,16 @@ namespace GateVR.EditorTools
                 LabVisualLibrary.Glass);
             LabVisualLibrary.Label(
                 visuals, "INPUT",
-                new Vector3(0.18f, socketY, -0.36f),
-                Quaternion.Euler(0f, 180f, 0f),
-                0.5f,
+                new Vector3(0.18f, socketY, -0.4f),
+                0.42f,
                 new Color(0.8f, 0.92f, 1f));
 
-            Lead(visuals, new Vector3(-0.05f, socketY, 0f), new Vector3(-0.62f, 0f, 0f), 0.08f);
+            InputPinView ledPin = host.GetComponentInChildren<InputPinView>();
+            if (ledPin != null)
+            {
+                PlacePin(ledPin.transform, new Vector3(-0.42f, socketY, 0f), 0.9f);
+                Lead(visuals, new Vector3(-0.13f, socketY, 0f), new Vector3(-0.34f, socketY, 0f), 0.07f);
+            }
             LabVisualLibrary.HideRootMesh(host.gameObject);
             LabVisualLibrary.FitBox(host.gameObject, new Vector3(0.18f, bottom + 0.48f, 0f), new Vector3(0.66f, 0.96f, 0.66f));
             MeshRenderer bulbRenderer = bulb.GetComponent<MeshRenderer>();
@@ -395,6 +421,7 @@ namespace GateVR.EditorTools
         {
             MeshRenderer cap = BuildTerminal(view.transform, LabVisualLibrary.PinOutput);
             LabVisualLibrary.AssignReference(view, "highlightRenderer", cap, errors);
+            LabVisualLibrary.AssignReference(view, "connectionAnchor", cap.transform, errors);
         }
 
         static void BuildInputPin(InputPinView view, StringBuilder errors)
@@ -405,7 +432,8 @@ namespace GateVR.EditorTools
                 return;
             }
 
-            BuildTerminal(view.transform, LabVisualLibrary.PinInput);
+            MeshRenderer cap = BuildTerminal(view.transform, LabVisualLibrary.PinInput);
+            LabVisualLibrary.AssignReference(view, "connectionAnchor", cap.transform, errors);
         }
 
         static MeshRenderer BuildTerminal(Transform pin, Material capMaterial)
@@ -419,6 +447,66 @@ namespace GateVR.EditorTools
             LabVisualLibrary.HideRootMesh(pin.gameObject);
             LabVisualLibrary.FitBox(pin.gameObject, axis * 0.28f, new Vector3(0.62f, 0.62f, 0.62f));
             return cap.GetComponent<MeshRenderer>();
+        }
+
+        static void PlaceCanvas()
+        {
+            Canvas[] canvases = UnityEngine.Object.FindObjectsByType<Canvas>();
+            Canvas canvas = null;
+            for (int i = 0; i < canvases.Length; i++)
+            {
+                if (canvases[i].name == "Canvas")
+                {
+                    canvas = canvases[i];
+                    break;
+                }
+            }
+
+            if (canvas == null)
+                return;
+
+            RectTransform rect = canvas.GetComponent<RectTransform>();
+            Undo.RecordObject(canvas, "Colocar panel");
+            Undo.RecordObject(rect, "Colocar panel");
+            canvas.renderMode = RenderMode.WorldSpace;
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = new Vector2(920f, 560f);
+            rect.localScale = new Vector3(0.00115f, 0.00115f, 0.00115f);
+            rect.position = new Vector3(0.78f, 1.18f, 0.08f);
+
+            Camera camera = Camera.main;
+            Vector3 towardUser = camera != null
+                ? camera.transform.position - rect.position
+                : new Vector3(-0.15f, 0.7f, -1f);
+            if (towardUser.sqrMagnitude > 0.0001f)
+                rect.rotation = Quaternion.LookRotation(-towardUser, Vector3.up);
+        }
+
+        static void PlaceGatePins(Transform gate, float bodyY)
+        {
+            InputPinView[] inputs = gate.GetComponentsInChildren<InputPinView>();
+            for (int i = 0; i < inputs.Length; i++)
+            {
+                if (inputs[i].IsLedInput)
+                    continue;
+
+                float side = inputs[i].IsPortB ? -0.22f : 0.22f;
+                PlacePin(inputs[i].transform, new Vector3(-0.66f, bodyY, side), 0.58f);
+            }
+
+            OutputPinView[] outputs = gate.GetComponentsInChildren<OutputPinView>();
+            for (int i = 0; i < outputs.Length; i++)
+                PlacePin(outputs[i].transform, new Vector3(0.66f, bodyY, 0f), 0.58f);
+        }
+
+        static void PlacePin(Transform pin, Vector3 localPosition, float uniformScale)
+        {
+            Undo.RecordObject(pin, "Colocar pin");
+            pin.localPosition = localPosition;
+            pin.localRotation = Quaternion.identity;
+            pin.localScale = Vector3.one * uniformScale;
         }
 
         static void Lead(Transform visuals, Vector3 from, Vector3 to, float thickness)

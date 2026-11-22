@@ -192,13 +192,13 @@ namespace GateVR.EditorTools
                 UnityEngine.Object.DestroyImmediate(generated);
         }
 
-        public static void Label(Transform parent, string text, Vector3 localPosition, Quaternion localRotation, float width, Color color)
+        public static void Label(Transform parent, string text, Vector3 localPosition, float width, Color color)
         {
             GameObject plate = new GameObject("Label_" + text);
             Undo.RegisterCreatedObjectUndo(plate, "Etiqueta");
             plate.transform.SetParent(parent, false);
             plate.transform.localPosition = localPosition;
-            plate.transform.localRotation = localRotation;
+            plate.transform.localRotation = Quaternion.identity;
             plate.transform.localScale = Vector3.one;
 
             TextMeshPro tmp = plate.AddComponent<TextMeshPro>();
@@ -211,6 +211,20 @@ namespace GateVR.EditorTools
             tmp.textWrappingMode = TextWrappingModes.NoWrap;
             tmp.overflowMode = TextOverflowModes.Overflow;
             tmp.ForceMeshUpdate();
+            FaceUser(plate.transform);
+        }
+
+        public static void FaceUser(Transform plate)
+        {
+            Camera camera = Camera.main;
+            Vector3 user = camera != null
+                ? camera.transform.position
+                : plate.position + new Vector3(0f, 0.85f, -1.1f);
+            Vector3 toUser = user - plate.position;
+            if (toUser.sqrMagnitude < 0.0001f)
+                return;
+
+            plate.rotation = Quaternion.LookRotation(toUser, Vector3.up);
         }
 
         public static void HideRootMesh(GameObject host)
