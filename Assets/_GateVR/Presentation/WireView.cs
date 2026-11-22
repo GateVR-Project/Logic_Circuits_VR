@@ -30,7 +30,7 @@ namespace GateVR.Presentation
         private void Awake()
         {
             _line = GetComponent<LineRenderer>();
-            _line.positionCount = 2;
+            _line.positionCount = 3;
             _line.useWorldSpace = true;
         }
 
@@ -71,8 +71,14 @@ namespace GateVR.Presentation
             if (_line == null || _output == null || _input == null)
                 return;
 
-            _line.SetPosition(0, _output.transform.position);
-            _line.SetPosition(1, _input.transform.position);
+            Vector3 start = _output.ConnectionPoint;
+            Vector3 end = _input.ConnectionPoint;
+            Vector3 mid = (start + end) * 0.5f;
+            mid.y = Mathf.Max(start.y, end.y) + 0.04f;
+            _line.positionCount = 3;
+            _line.SetPosition(0, start);
+            _line.SetPosition(1, mid);
+            _line.SetPosition(2, end);
         }
 
         private void RefreshColor()

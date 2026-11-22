@@ -13,6 +13,7 @@ namespace GateVR.Presentation
         [SerializeField] private GateView gateOwner;
         [SerializeField] private PinConnectorManager connector;
         [SerializeField] private MeshRenderer highlightRenderer;
+        [SerializeField] private Transform connectionAnchor;
         [SerializeField] private Color selectedColor = new Color(1f, 0.85f, 0.2f);
 
         private MaterialPropertyBlock _highlight;
@@ -29,6 +30,11 @@ namespace GateVR.Presentation
 
                 return null;
             }
+        }
+
+        public Vector3 ConnectionPoint
+        {
+            get { return PinConnection.Resolve(connectionAnchor, this); }
         }
 
         private void Awake()

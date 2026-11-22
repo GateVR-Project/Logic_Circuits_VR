@@ -18,6 +18,7 @@ namespace GateVR.Presentation
         [SerializeField] private GateInputPort gatePort = GateInputPort.A;
         [SerializeField] private LedView ledOwner;
         [SerializeField] private PinConnectorManager connector;
+        [SerializeField] private Transform connectionAnchor;
 
         public GateView GateOwner
         {
@@ -37,6 +38,11 @@ namespace GateVR.Presentation
         public bool IsPortB
         {
             get { return gatePort == GateInputPort.B; }
+        }
+
+        public Vector3 ConnectionPoint
+        {
+            get { return PinConnection.Resolve(connectionAnchor, this); }
         }
 
         private void Awake()

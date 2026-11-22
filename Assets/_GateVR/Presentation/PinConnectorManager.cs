@@ -215,7 +215,7 @@ namespace GateVR.Presentation
                 wireObject.transform.SetParent(wireRoot, false);
 
             LineRenderer line = wireObject.AddComponent<LineRenderer>();
-            line.positionCount = 2;
+            line.positionCount = 3;
             line.useWorldSpace = true;
             line.startWidth = 0.012f;
             line.endWidth = 0.012f;
