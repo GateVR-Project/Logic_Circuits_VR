@@ -22,14 +22,16 @@ namespace GateVR.Application
                     objective: "Enciende el LED solo cuando los dos interruptores están encendidos.",
                     logicConditionText: "LED = A AND B",
                     requiredGateType: "AND",
-                    expectedTruthTable: (a, b) => a && b),
+                    expectedTruthTable: (a, b) => a && b,
+                    tasks: PracticeTasks.ForGate("AND", false)),
                 new PracticeExercise(
                     id: "or-01",
                     title: "Compuerta OR",
                     objective: "Enciende el LED cuando al menos un interruptor está encendido.",
                     logicConditionText: "LED = A OR B",
                     requiredGateType: "OR",
-                    expectedTruthTable: (a, b) => a || b),
+                    expectedTruthTable: (a, b) => a || b,
+                    tasks: PracticeTasks.ForGate("OR", false)),
                 new PracticeExercise(
                     id: "not-01",
                     title: "Compuerta NOT",
@@ -37,7 +39,8 @@ namespace GateVR.Application
                     logicConditionText: "LED = NOT A",
                     requiredGateType: "NOT",
                     expectedTruthTable: (a, b) => !a,
-                    usesSingleInput: true)
+                    usesSingleInput: true,
+                    tasks: PracticeTasks.ForGate("NOT", true))
             }.AsReadOnly();
 
             CurrentExercise = _exercises[0];
@@ -112,6 +115,27 @@ namespace GateVR.Application
                 return structural;
 
             return EvaluateTruthTable(switchA, switchB, led);
+        }
+
+        /// <summary>
+        /// Revisa el cableado sin recorrer la tabla de verdad ni mover los interruptores.
+        /// </summary>
+        public (bool IsValid, string FeedbackMessage) InspectStructure(
+            SwitchNode switchA,
+            SwitchNode switchB,
+            GateNode targetGate,
+            LedNode led)
+        {
+            if (switchA == null)
+                throw new ArgumentNullException(nameof(switchA));
+            if (switchB == null)
+                throw new ArgumentNullException(nameof(switchB));
+            if (targetGate == null)
+                throw new ArgumentNullException(nameof(targetGate));
+            if (led == null)
+                throw new ArgumentNullException(nameof(led));
+
+            return ValidateStructure(switchA, switchB, targetGate, led);
         }
 
         /// <summary>

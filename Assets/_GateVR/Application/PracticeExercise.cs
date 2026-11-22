@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace GateVR.Application
 {
@@ -16,7 +17,8 @@ namespace GateVR.Application
             Func<bool, bool, bool> expectedTruthTable,
             bool usesSingleInput = false,
             string initialGateType = null,
-            bool keepCompatibleWiring = true)
+            bool keepCompatibleWiring = true,
+            IReadOnlyList<PracticeTaskDefinition> tasks = null)
         {
             if (string.IsNullOrWhiteSpace(id))
                 throw new ArgumentException("El ejercicio necesita un id.", nameof(id));
@@ -38,6 +40,8 @@ namespace GateVR.Application
                 ? requiredGateType
                 : initialGateType;
             KeepCompatibleWiring = keepCompatibleWiring;
+            PracticeTaskDefinition.ValidateSet(tasks);
+            Tasks = new List<PracticeTaskDefinition>(tasks).AsReadOnly();
         }
 
         public string Id { get; private set; }
@@ -69,5 +73,7 @@ namespace GateVR.Application
         /// Si es falso, la práctica empieza sin cables.
         /// </summary>
         public bool KeepCompatibleWiring { get; private set; }
+
+        public IReadOnlyList<PracticeTaskDefinition> Tasks { get; private set; }
     }
 }

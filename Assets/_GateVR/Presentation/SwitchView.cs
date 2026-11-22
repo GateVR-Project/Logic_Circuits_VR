@@ -49,7 +49,15 @@ namespace GateVR.Presentation
 
             _node.Toggle();
             RefreshVisual();
+            System.Action handler = Interacted;
+            if (handler != null)
+                handler();
         }
+
+        /// <summary>
+        /// Solo se dispara desde la pulsación del estudiante, no desde la tabla de verdad.
+        /// </summary>
+        public event System.Action Interacted;
 
         private void OnMouseDown()
         {

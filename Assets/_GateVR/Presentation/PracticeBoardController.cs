@@ -34,14 +34,19 @@ namespace GateVR.Presentation
         [SerializeField] private Color hintColor = Color.white;
         [SerializeField] private Color successColor = new Color(0.5f, 0.95f, 0.55f);
         [SerializeField] private Color errorColor = new Color(1f, 0.45f, 0.4f);
+        [SerializeField] private bool developmentFreeNavigation;
 
         private static Sprite _buttonSprite;
         private PracticeSessionService _session;
+        private LessonProgress _progress;
+        private LessonTaskPanel _tasks;
 
         private void Awake()
         {
             _session = new PracticeSessionService();
+            _progress = new LessonProgress(_session.CurrentExercise);
             EnsureGateButtons();
+            RefreshNextButton();
         }
 
         private void OnEnable()
@@ -63,6 +68,18 @@ namespace GateVR.Presentation
 
             if (notButton != null)
                 notButton.onClick.AddListener(SelectNot);
+
+            if (_tasks != null && _tasks.UnderstoodButton != null)
+                _tasks.UnderstoodButton.onClick.AddListener(AcknowledgeRequirement);
+
+            if (switchA != null)
+                switchA.Interacted += OnStudentSwitch;
+
+            if (switchB != null)
+                switchB.Interacted += OnStudentSwitch;
+
+            if (connector != null)
+                connector.WiringChanged += OnWiringChanged;
         }
 
         private void OnDisable()
@@ -84,12 +101,26 @@ namespace GateVR.Presentation
 
             if (notButton != null)
                 notButton.onClick.RemoveListener(SelectNot);
+
+            if (_tasks != null && _tasks.UnderstoodButton != null)
+                _tasks.UnderstoodButton.onClick.RemoveListener(AcknowledgeRequirement);
+
+            if (switchA != null)
+                switchA.Interacted -= OnStudentSwitch;
+
+            if (switchB != null)
+                switchB.Interacted -= OnStudentSwitch;
+
+            if (connector != null)
+                connector.WiringChanged -= OnWiringChanged;
         }
 
         private void Start()
         {
             ShowCurrentExercise();
             HighlightSelectedGate();
+            RefreshWiring();
+            RefreshProgressUi();
         }
 
         public void CheckCircuit()
@@ -102,29 +133,56 @@ namespace GateVR.Presentation
                 return;
 
             var result = _session.ValidateCurrentCircuit(nodeA, nodeB, gate, bulb);
-            SetFeedback(result.FeedbackMessage, result.IsSuccess ? successColor : errorColor);
+            RefreshWiring();
+            _progress.NoteValidation(result.IsSuccess);
+            RefreshProgressUi();
+
+            string message = result.FeedbackMessage;
+            if (result.IsSuccess && _progress.IsPracticeComplete)
+                message += " Puedes avanzar con Siguiente.";
+            else if (result.IsSuccess)
+                message += " Completa las tareas pendientes para avanzar.";
+
+            SetFeedback(message, result.IsSuccess ? successColor : errorColor);
             RefreshViews();
         }
 
         public void SelectNextExercise()
         {
+            if (!developmentFreeNavigation && !_progress.IsPracticeComplete)
+            {
+                SetFeedback("Completa las tareas de esta práctica para avanzar.", hintColor);
+                return;
+            }
+
             PracticeExercise exercise = _session.AdvanceExercise();
+            _progress.Load(exercise);
             LoadPracticeStation(exercise);
+            RefreshProgressUi();
+        }
+
+        public void AcknowledgeRequirement()
+        {
+            _progress.AcknowledgeRequirement();
+            RefreshProgressUi();
+            SetFeedback(
+                "Requerimiento leído. Confirma la compuerta " + _session.CurrentExercise.RequiredGateType + ".",
+                hintColor);
         }
 
         public void SelectAnd()
         {
-            ApplyGate(GateType.AND);
+            ApplyGate(GateType.AND, true);
         }
 
         public void SelectOr()
         {
-            ApplyGate(GateType.OR);
+            ApplyGate(GateType.OR, true);
         }
 
         public void SelectNot()
         {
-            ApplyGate(GateType.NOT);
+            ApplyGate(GateType.NOT, true);
         }
 
         public void ResetPractice()
@@ -132,7 +190,9 @@ namespace GateVR.Presentation
             if (!ClearCircuit())
                 return;
 
+            _progress.NoteCircuitReset();
             ShowPracticeTexts();
+            RefreshProgressUi();
             SetFeedback(
                 "Circuito reiniciado. La práctica activa sigue siendo " + _session.CurrentExercise.Title + ".",
                 hintColor);
@@ -154,7 +214,7 @@ namespace GateVR.Presentation
                 return;
             }
 
-            ApplyGate(station);
+            ApplyGate(station, false);
             if (exercise.KeepCompatibleWiring)
                 return;
 
@@ -166,7 +226,7 @@ namespace GateVR.Presentation
         /// Cambia solo el nodo de la estación. La práctica activa no se modifica.
         /// AND y OR conservan A y B. NOT conserva A y libera B.
         /// </summary>
-        private void ApplyGate(GateType type)
+        private void ApplyGate(GateType type, bool studentChoice)
         {
             if (activeGate == null || activeGate.Node == null)
             {
@@ -199,7 +259,12 @@ namespace GateVR.Presentation
 
             HighlightSelectedGate();
             RefreshViews();
+            if (studentChoice && activeGate.Node != null)
+                _progress.NoteManualGate(activeGate.Node.GateName);
+
+            RefreshWiring();
             ShowCurrentExercise();
+            RefreshProgressUi();
         }
 
         private bool ClearCircuit()
@@ -220,6 +285,47 @@ namespace GateVR.Presentation
 
             RefreshViews();
             return true;
+        }
+
+        private void OnStudentSwitch()
+        {
+            _progress.NoteManualSwitch();
+            RefreshProgressUi();
+        }
+
+        private void OnWiringChanged()
+        {
+            RefreshWiring();
+            RefreshProgressUi();
+        }
+
+        private void RefreshWiring()
+        {
+            SwitchNode nodeA;
+            SwitchNode nodeB;
+            GateNode gate;
+            LedNode bulb;
+            if (!TryGetNodes(out nodeA, out nodeB, out gate, out bulb))
+                return;
+
+            var structure = _session.InspectStructure(nodeA, nodeB, gate, bulb);
+            _progress.NoteWiring(structure.IsValid);
+        }
+
+        private void RefreshProgressUi()
+        {
+            if (_tasks != null)
+                _tasks.Bind(_progress.Tasks, _progress.CompletedCount, _progress.TotalCount);
+
+            RefreshNextButton();
+        }
+
+        private void RefreshNextButton()
+        {
+            if (nextButton == null)
+                return;
+
+            nextButton.interactable = developmentFreeNavigation || _progress.IsPracticeComplete;
         }
 
         private static bool TryStationType(string gateName, out GateType type)
@@ -328,6 +434,7 @@ namespace GateVR.Presentation
                 return;
 
             TMP_FontAsset font = titleText != null ? titleText.font : TMP_Settings.defaultFontAsset;
+            _tasks = LessonTaskPanel.Create(parent, font);
             EnsureCaption(parent, font);
             if (andButton == null)
                 andButton = EnsureButton(parent, "Btn_AND", "AND", new Vector2(250f, 150f), font);

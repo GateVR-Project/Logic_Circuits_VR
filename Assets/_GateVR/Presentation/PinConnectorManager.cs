@@ -24,6 +24,8 @@ namespace GateVR.Presentation
         private OutputPinView _pendingOutput;
         private bool _warnedMissingPrefab;
 
+        public event System.Action WiringChanged;
+
         public void SelectOutput(OutputPinView pin)
         {
             if (pin == null)
@@ -84,6 +86,8 @@ namespace GateVR.Presentation
 
                 RemoveWiresAt(pin);
             }
+
+            NotifyWiringChanged();
         }
 
         /// <summary>
@@ -111,6 +115,7 @@ namespace GateVR.Presentation
 
             _wires.Clear();
             ClearSelection();
+            NotifyWiringChanged();
         }
 
         public void ShowMessage(string message)
@@ -157,6 +162,14 @@ namespace GateVR.Presentation
             wire.Bind(output, input);
             _wires.Add(wire);
             ShowMessage(occupiedByOther ? "Cable reemplazado." : "Cable conectado.");
+            NotifyWiringChanged();
+        }
+
+        private void NotifyWiringChanged()
+        {
+            System.Action handler = WiringChanged;
+            if (handler != null)
+                handler();
         }
 
         private static (bool IsValid, string ErrorMessage) ConnectNode(

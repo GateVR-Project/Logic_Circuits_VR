@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using GateVR.Application;
 using GateVR.Domain.Entities;
@@ -20,6 +21,7 @@ internal static class Phase1LogicTests
         TestExerciseValidation();
         TestWrongGateKeepsTheExercise();
         TestAdvanceConfiguresTheStationGate();
+        TestLessonProgress();
         TestNotExercise();
         TestReplacingGateDropsOldSubscriptions();
         TestDirectSwitchIsRejectedWithoutMutating();
@@ -370,9 +372,155 @@ internal static class Phase1LogicTests
             requiredGateType: "AND",
             expectedTruthTable: (left, right) => left && right,
             initialGateType: "OR",
-            keepCompatibleWiring: false);
+            keepCompatibleWiring: false,
+            tasks: PracticeTasks.ForGate("AND", false));
         Check(diagnostic.RequiredGateType == "AND" && diagnostic.InitialGateType == "OR", "una práctica puede abrir con una compuerta distinta de la exigida");
         Check(!diagnostic.KeepCompatibleWiring, "esa práctica puede empezar sin cables");
+    }
+
+    private static void TestLessonProgress()
+    {
+        Section("Tareas guiadas, dependencias y reversión");
+        PracticeSessionService session = new PracticeSessionService();
+        Check(session.CurrentExercise.Tasks.Count >= 5, "AND tiene al menos cinco tareas");
+        Check(session.Exercises[1].Tasks.Count >= 5 && session.Exercises[2].Tasks.Count >= 5, "OR y NOT también tienen al menos cinco");
+
+        LessonProgress progress = new LessonProgress(session.CurrentExercise);
+        Check(progress.CompletedCount == 0 && progress.TotalCount == 5 && !progress.IsPracticeComplete, "el progreso inicial es 0/5");
+        Check(AllPending(progress), "ninguna tarea empieza completada");
+
+        progress.NoteWiring(true);
+        progress.NoteValidation(true);
+        Check(Find(progress, "wire").State == LessonTaskState.Pending, "el cableado no se completa antes de confirmar la compuerta");
+        Check(Find(progress, "check").State == LessonTaskState.Pending, "Comprobar no cierra la lección si faltan tareas anteriores");
+
+        progress.AcknowledgeRequirement();
+        Check(progress.CompletedCount == 1 && Find(progress, "read").State == LessonTaskState.Completed, "Entendido completa solo la lectura");
+        Check(Find(progress, "gate").State == LessonTaskState.Pending, "la compuerta automática de Siguiente no cuenta como confirmación");
+
+        progress.NoteManualGate("OR");
+        Check(Find(progress, "gate").State == LessonTaskState.Pending, "elegir OR no confirma la práctica AND");
+        progress.NoteManualGate("AND");
+        Check(Find(progress, "gate").State == LessonTaskState.Completed, "pulsar AND confirma la compuerta pedida");
+        Check(Find(progress, "wire").State == LessonTaskState.Completed, "el cableado válido se reconoce al quedar desbloqueado");
+        Check(Find(progress, "check").State == LessonTaskState.Pending, "la comprobación espera la prueba manual de los interruptores");
+
+        progress.NoteManualSwitch();
+        Check(Find(progress, "try").State == LessonTaskState.Completed, "accionar un interruptor completa la experimentación");
+        Check(Find(progress, "check").State == LessonTaskState.Pending, "mover un interruptor deja obsoleta la comprobación anterior");
+
+        progress.NoteValidation(true);
+        Check(progress.IsPracticeComplete && progress.CompletedCount == 5, "una comprobación correcta cierra 5/5");
+
+        progress.NoteWiring(false);
+        Check(Find(progress, "wire").State == LessonTaskState.Pending, "quitar un cable deja el cableado pendiente");
+        Check(Find(progress, "try").State == LessonTaskState.Pending, "la prueba de interruptores depende del cableado");
+        Check(Find(progress, "check").State == LessonTaskState.Pending, "la comprobación vuelve a pendiente");
+        Check(Find(progress, "read").State == LessonTaskState.Completed && Find(progress, "gate").State == LessonTaskState.Completed, "la lectura y la compuerta confirmada se conservan");
+        Check(progress.CompletedCount == 2, "el progreso retrocede a 2/5");
+
+        progress.NoteWiring(true);
+        progress.NoteValidation(true);
+        Check(progress.IsPracticeComplete, "al recuperar el cable, las tareas dependientes vuelven a completarse");
+
+        progress.NoteCircuitReset();
+        Check(Find(progress, "wire").State == LessonTaskState.Pending && Find(progress, "try").State == LessonTaskState.Pending, "Reiniciar limpia cableado y experimentación");
+        Check(Find(progress, "read").State == LessonTaskState.Completed, "Reiniciar conserva la práctica y la lectura");
+
+        session.AdvanceExercise();
+        progress.Load(session.CurrentExercise);
+        Check(session.CurrentExercise.RequiredGateType == "OR" && progress.CompletedCount == 0, "Siguiente abre OR con las tareas en pendiente");
+        progress.NoteManualGate("OR");
+        Check(Find(progress, "gate").State == LessonTaskState.Pending, "confirmar OR todavía exige haber leído el requerimiento");
+
+        var extra = new List<PracticeTaskDefinition>(PracticeTasks.ForGate("AND", false));
+        extra.Add(new PracticeTaskDefinition(
+            "review",
+            "Revisar el resultado",
+            "Vuelve a leer por qué el circuito es correcto.",
+            6,
+            TaskConditionKind.CheckResult,
+            "check"));
+        PracticeExercise longer = new PracticeExercise(
+            "and-extra",
+            "AND ampliada",
+            "Una tarea más.",
+            "LED = A AND B",
+            "AND",
+            (left, right) => left && right,
+            tasks: extra);
+        LessonProgress six = new LessonProgress(longer);
+        Check(six.TotalCount == 6, "una práctica puede tener más de cinco tareas");
+        CompleteIntroductory(six, "AND");
+        Check(six.CompletedCount == 6 && six.IsPracticeComplete, "la sexta tarea se completa con el resultado");
+
+        bool rejected = false;
+        try
+        {
+            IReadOnlyList<PracticeTaskDefinition> source = PracticeTasks.ForGate("AND", false);
+            var four = new List<PracticeTaskDefinition>();
+            for (int i = 0; i < 4; i++)
+                four.Add(source[i]);
+
+            PracticeTaskDefinition.ValidateSet(four);
+        }
+        catch (ArgumentException)
+        {
+            rejected = true;
+        }
+
+        Check(rejected, "menos de cinco tareas se rechaza");
+
+        bool cycle = false;
+        try
+        {
+            var loop = new List<PracticeTaskDefinition>
+            {
+                new PracticeTaskDefinition("a", "A", "A", 1, TaskConditionKind.ReadRequirement, "b"),
+                new PracticeTaskDefinition("b", "B", "B", 2, TaskConditionKind.ConfirmGate, "a"),
+                new PracticeTaskDefinition("c", "C", "C", 3, TaskConditionKind.WireCircuit, "a"),
+                new PracticeTaskDefinition("d", "D", "D", 4, TaskConditionKind.TrySwitches, "c"),
+                new PracticeTaskDefinition("e", "E", "E", 5, TaskConditionKind.CheckResult, "d")
+            };
+            PracticeTaskDefinition.ValidateSet(loop);
+        }
+        catch (ArgumentException)
+        {
+            cycle = true;
+        }
+
+        Check(cycle, "un ciclo de dependencias se rechaza");
+    }
+
+    private static void CompleteIntroductory(LessonProgress progress, string gateName)
+    {
+        progress.AcknowledgeRequirement();
+        progress.NoteManualGate(gateName);
+        progress.NoteWiring(true);
+        progress.NoteManualSwitch();
+        progress.NoteValidation(true);
+    }
+
+    private static TaskStatus Find(LessonProgress progress, string id)
+    {
+        for (int i = 0; i < progress.Tasks.Count; i++)
+        {
+            if (progress.Tasks[i].Id == id)
+                return progress.Tasks[i];
+        }
+
+        throw new InvalidOperationException("No está la tarea " + id);
+    }
+
+    private static bool AllPending(LessonProgress progress)
+    {
+        for (int i = 0; i < progress.Tasks.Count; i++)
+        {
+            if (progress.Tasks[i].State != LessonTaskState.Pending)
+                return false;
+        }
+
+        return true;
     }
 
     private static void TestNotExercise()
