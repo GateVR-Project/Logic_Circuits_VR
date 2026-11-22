@@ -32,6 +32,11 @@ namespace GateVR.Presentation
             }
         }
 
+        public bool BelongsTo(GateView gate)
+        {
+            return gate != null && gateOwner == gate;
+        }
+
         public Vector3 ConnectionPoint
         {
             get { return PinConnection.Resolve(connectionAnchor, this); }

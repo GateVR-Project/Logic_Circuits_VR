@@ -18,6 +18,10 @@ internal static class Phase1LogicTests
         TestConnectionRules();
         TestCycleRejectionKeepsPreviousCable();
         TestExerciseValidation();
+        TestWrongGateKeepsTheExercise();
+        TestAdvanceConfiguresTheStationGate();
+        TestNotExercise();
+        TestReplacingGateDropsOldSubscriptions();
         TestDirectSwitchIsRejectedWithoutMutating();
         TestResetCircuit();
 
@@ -206,7 +210,7 @@ internal static class Phase1LogicTests
     {
         Section("Validación estructural y tabla de verdad");
         PracticeSessionService session = new PracticeSessionService();
-        Check(session.Exercises.Count == 2, "hay dos ejercicios");
+        Check(session.Exercises.Count == 3, "hay tres ejercicios de estación");
         Check(session.CurrentExercise.Id == "and-01", "el ejercicio inicial es AND");
 
         SwitchNode a = new SwitchNode();
@@ -277,6 +281,190 @@ internal static class Phase1LogicTests
         orOk.TryConnect(orGate);
         var orSuccess = session.ValidateCurrentCircuit(a, b, orGate, orOk);
         Check(orSuccess.IsSuccess, orSuccess.FeedbackMessage);
+    }
+
+    private static void TestWrongGateKeepsTheExercise()
+    {
+        Section("Una compuerta distinta no cambia la práctica");
+        PracticeSessionService session = new PracticeSessionService();
+        SwitchNode a = new SwitchNode();
+        SwitchNode b = new SwitchNode();
+
+        GateNode and = new GateNode(new AndGate());
+        LedNode andLed = new LedNode();
+        and.TryConnectInputA(a);
+        and.TryConnectInputB(b);
+        andLed.TryConnect(and);
+
+        var andOk = session.ValidateCurrentCircuit(a, b, and, andLed);
+        Check(andOk.IsSuccess, andOk.FeedbackMessage);
+        Check(session.CurrentExercise.Id == "and-01", "aprobar AND no cambia la práctica");
+
+        GateNode or = new GateNode(new OrGate());
+        LedNode orLed = new LedNode();
+        or.TryConnectInputA(a);
+        or.TryConnectInputB(b);
+        orLed.TryConnect(or);
+        var andPracticeOrGate = session.ValidateCurrentCircuit(a, b, or, orLed);
+        Check(!andPracticeOrGate.IsSuccess && andPracticeOrGate.FeedbackMessage.Contains("requiere una compuerta AND"), andPracticeOrGate.FeedbackMessage);
+        Check(session.CurrentExercise.Id == "and-01" && session.CurrentExercise.RequiredGateType == "AND", "elegir OR deja activa la práctica AND");
+
+        session.SelectExercise("or-01");
+        var orPracticeAndGate = session.ValidateCurrentCircuit(a, b, and, andLed);
+        Check(!orPracticeAndGate.IsSuccess && orPracticeAndGate.FeedbackMessage.Contains("requiere una compuerta OR"), orPracticeAndGate.FeedbackMessage);
+        Check(session.CurrentExercise.Id == "or-01", "el rechazo no devuelve la práctica a AND");
+
+        session.SelectExercise("not-01");
+        GateNode not = new GateNode(new NotGate());
+        LedNode notLed = new LedNode();
+        not.TryConnectInputA(a);
+        notLed.TryConnect(not);
+        a.SetState(true);
+        bool switchBBefore = b.IsOn;
+        var notOk = session.ValidateCurrentCircuit(a, b, not, notLed);
+        Check(notOk.IsSuccess && notOk.FeedbackMessage.Contains("NOT A"), notOk.FeedbackMessage);
+        Check(a.IsOn && b.IsOn == switchBBefore, "NOT comprueba A=0 y A=1 y restaura A");
+        Check(session.CurrentExercise.Id == "not-01", "validar NOT conserva la práctica");
+
+        session.ResetCircuit(a, b, not, notLed);
+        Check(session.CurrentExercise.Id == "not-01" && session.CurrentExercise.RequiredGateType == "NOT", "Reiniciar conserva los requisitos");
+        Check(!a.IsOn && !b.IsOn && not.InputA == null && notLed.Input == null, "Reiniciar limpia el circuito");
+
+        var stillNot = session.ValidateCurrentCircuit(a, b, and, andLed);
+        Check(!stillNot.IsSuccess && stillNot.FeedbackMessage.Contains("requiere una compuerta NOT"), stillNot.FeedbackMessage);
+        Check(session.CurrentExercise.Id == "not-01", "después de reiniciar la práctica sigue siendo NOT");
+    }
+
+    private static void TestAdvanceConfiguresTheStationGate()
+    {
+        Section("Siguiente cambia la práctica y su compuerta de estación");
+        PracticeSessionService session = new PracticeSessionService();
+        Check(session.CurrentExercise.InitialGateType == "AND" && session.CurrentExercise.KeepCompatibleWiring, "AND abre con estación AND y conserva cables compatibles");
+
+        PracticeExercise orExercise = session.AdvanceExercise();
+        Check(orExercise.Id == "or-01" && orExercise.InitialGateType == "OR" && orExercise.RequiredGateType == "OR", "Siguiente deja la práctica OR en una estación OR");
+
+        PracticeExercise notExercise = session.AdvanceExercise();
+        Check(notExercise.Id == "not-01" && notExercise.InitialGateType == "NOT" && notExercise.UsesSingleInput, "Siguiente deja la práctica NOT en una estación NOT");
+
+        PracticeExercise andAgain = session.AdvanceExercise();
+        Check(andAgain.Id == "and-01" && andAgain.InitialGateType == "AND", "Siguiente vuelve a AND");
+
+        session.AdvanceExercise();
+        SwitchNode a = new SwitchNode();
+        SwitchNode b = new SwitchNode();
+        GateNode and = new GateNode(new AndGate());
+        LedNode led = new LedNode();
+        and.TryConnectInputA(a);
+        and.TryConnectInputB(b);
+        led.TryConnect(and);
+        var rejected = session.ValidateCurrentCircuit(a, b, and, led);
+        Check(!rejected.IsSuccess && rejected.FeedbackMessage.Contains("requiere una compuerta OR"), rejected.FeedbackMessage);
+        Check(session.CurrentExercise.Id == "or-01", "avanzar no aprueba y una AND manual sigue siendo incorrecta en OR");
+
+        PracticeExercise diagnostic = new PracticeExercise(
+            id: "diag-01",
+            title: "Diagnóstico",
+            objective: "Identifica la compuerta que no corresponde.",
+            logicConditionText: "LED = A AND B",
+            requiredGateType: "AND",
+            expectedTruthTable: (left, right) => left && right,
+            initialGateType: "OR",
+            keepCompatibleWiring: false);
+        Check(diagnostic.RequiredGateType == "AND" && diagnostic.InitialGateType == "OR", "una práctica puede abrir con una compuerta distinta de la exigida");
+        Check(!diagnostic.KeepCompatibleWiring, "esa práctica puede empezar sin cables");
+    }
+
+    private static void TestNotExercise()
+    {
+        Section("NOT 0 -> 1 y 1 -> 0");
+        PracticeSessionService session = new PracticeSessionService();
+        session.SelectExercise("not-01");
+        Check(session.CurrentExercise.UsesSingleInput, "NOT usa una sola entrada");
+
+        SwitchNode a = new SwitchNode();
+        SwitchNode b = new SwitchNode();
+        GateNode not = new GateNode(new NotGate());
+        LedNode led = new LedNode();
+        Check(not.TryConnectInputA(a).IsValid, "NOT recibe A");
+        Check(led.TryConnect(not).IsValid, "LED recibe NOT");
+        a.SetState(true);
+        b.SetState(true);
+
+        var success = session.ValidateCurrentCircuit(a, b, not, led);
+        Check(success.IsSuccess, success.FeedbackMessage);
+        Check(a.IsOn && b.IsOn, "la tabla de NOT restaura A y no toca B");
+
+        a.SetState(false);
+        Check(not.GetSignal() && led.IsLit, "0 -> 1");
+        a.SetState(true);
+        Check(!not.GetSignal() && !led.IsLit, "1 -> 0");
+
+        GateNode open = new GateNode(new NotGate());
+        LedNode openLed = new LedNode();
+        openLed.TryConnect(open);
+        var missing = session.ValidateCurrentCircuit(a, b, open, openLed);
+        Check(!missing.IsSuccess && missing.FeedbackMessage.Contains("0 de 1"), missing.FeedbackMessage);
+
+        session.SelectExercise("and-01");
+        var wrong = session.ValidateCurrentCircuit(a, b, not, led);
+        Check(!wrong.IsSuccess && wrong.FeedbackMessage.Contains("requiere una compuerta AND"), wrong.FeedbackMessage);
+    }
+
+    private static void TestReplacingGateDropsOldSubscriptions()
+    {
+        Section("Sustituir el nodo no deja suscriptores anteriores");
+        SwitchNode a = new SwitchNode();
+        SwitchNode b = new SwitchNode();
+        GateNode previous = new GateNode(new AndGate());
+        LedNode led = new LedNode();
+        Check(ConnectBinary(previous, a, b, led), "cableado AND");
+        a.SetState(true);
+        b.SetState(true);
+        Check(led.IsLit, "AND 11 -> 1");
+        Check(SubscriberCount(previous) == 1, "el LED es el único suscriptor");
+
+        ISignalSource keptA = previous.InputA;
+        ISignalSource keptB = previous.InputB;
+        previous.DisconnectAll();
+        GateNode current = new GateNode(new OrGate());
+        Check(current.TryConnectInputA(keptA).IsValid, "OR conserva A");
+        Check(current.TryConnectInputB(keptB).IsValid, "OR conserva B");
+        Check(led.ReplaceInput(current).IsValid, "el LED pasa a OR");
+        Check(SubscriberCount(previous) == 0, "AND ya no tiene suscriptores");
+        Check(ReferenceEquals(led.Input, current), "el LED apunta al nodo vigente");
+
+        a.SetState(false);
+        b.SetState(false);
+        Check(!led.IsLit, "OR 00 -> 0");
+        b.SetState(true);
+        Check(led.IsLit, "OR 01 -> 1");
+        b.SetState(false);
+        a.SetState(true);
+        Check(led.IsLit, "OR 10 -> 1");
+        b.SetState(true);
+        Check(led.IsLit, "OR 11 -> 1");
+
+        previous.TryConnectInputA(a);
+        previous.TryConnectInputB(b);
+        Check(previous.GetSignal(), "el nodo AND anterior sigue calculando 11");
+        Check(SubscriberCount(previous) == 0, "reconectar AND no revive al LED");
+        Check(ReferenceEquals(led.Input, current), "el LED sigue en OR");
+
+        ISignalSource notA = current.InputA;
+        current.DisconnectAll();
+        GateNode not = new GateNode(new NotGate());
+        Check(not.TryConnectInputA(notA).IsValid, "NOT conserva A");
+        Check(not.InputB == null, "NOT no arrastra B");
+        Check(!not.TryConnectInputB(b).IsValid && not.InputB == null, "NOT rechaza un cable nuevo en B");
+        Check(led.ReplaceInput(not).IsValid, "el LED pasa a NOT");
+        Check(SubscriberCount(current) == 0, "OR ya no tiene suscriptores");
+
+        a.SetState(false);
+        Check(led.IsLit, "NOT 0 -> 1 después del reemplazo");
+        a.SetState(true);
+        Check(!led.IsLit, "NOT 1 -> 0 después del reemplazo");
+        Check(SubscriberCount(not) == 1, "NOT tiene un solo suscriptor, el LED");
     }
 
     private static void TestDirectSwitchIsRejectedWithoutMutating()

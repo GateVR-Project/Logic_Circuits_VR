@@ -29,7 +29,15 @@ namespace GateVR.Application
                     objective: "Enciende el LED cuando al menos un interruptor está encendido.",
                     logicConditionText: "LED = A OR B",
                     requiredGateType: "OR",
-                    expectedTruthTable: (a, b) => a || b)
+                    expectedTruthTable: (a, b) => a || b),
+                new PracticeExercise(
+                    id: "not-01",
+                    title: "Compuerta NOT",
+                    objective: "Enciende el LED cuando el interruptor A está apagado.",
+                    logicConditionText: "LED = NOT A",
+                    requiredGateType: "NOT",
+                    expectedTruthTable: (a, b) => !a,
+                    usesSingleInput: true)
             }.AsReadOnly();
 
             CurrentExercise = _exercises[0];
@@ -57,6 +65,27 @@ namespace GateVR.Application
             }
 
             throw new ArgumentException("No existe un ejercicio con id '" + id + "'.", nameof(id));
+        }
+
+        /// <summary>
+        /// Avanza a la práctica siguiente. No comprueba el circuito ni lo da por aprobado.
+        /// La estación debe usar <see cref="PracticeExercise.InitialGateType"/>.
+        /// </summary>
+        public PracticeExercise AdvanceExercise()
+        {
+            int current = 0;
+            for (int i = 0; i < _exercises.Count; i++)
+            {
+                if (string.Equals(_exercises[i].Id, CurrentExercise.Id, StringComparison.Ordinal))
+                {
+                    current = i;
+                    break;
+                }
+            }
+
+            int next = (current + 1) % _exercises.Count;
+            CurrentExercise = _exercises[next];
+            return CurrentExercise;
         }
 
         /// <summary>
@@ -130,6 +159,9 @@ namespace GateVR.Application
                     + " y el nodo evaluado es " + targetGate.GateName + ".");
             }
 
+            if (exercise.UsesSingleInput)
+                return ValidateSingleInput(switchA, targetGate);
+
             if (!targetGate.HasAllInputsConnected)
             {
                 int connected = CountConnectedInputs(targetGate);
@@ -149,11 +181,28 @@ namespace GateVR.Application
             return (true, string.Empty);
         }
 
+        private (bool IsSuccess, string FeedbackMessage) ValidateSingleInput(SwitchNode switchA, GateNode targetGate)
+        {
+            if (targetGate.InputB != null)
+                return (false, "La compuerta NOT solo admite la entrada A. Desconecta la entrada B.");
+
+            if (targetGate.InputA == null)
+                return (false, "La compuerta NOT tiene 0 de 1 entradas conectadas.");
+
+            if (!IsUpstream(targetGate, switchA, new HashSet<ISignalSource>()))
+                return (false, "La señal del interruptor A no llega a la compuerta.");
+
+            return (true, string.Empty);
+        }
+
         private (bool IsSuccess, string FeedbackMessage) EvaluateTruthTable(
             SwitchNode switchA,
             SwitchNode switchB,
             LedNode led)
         {
+            if (CurrentExercise.UsesSingleInput)
+                return EvaluateSingleInput(switchA, led);
+
             bool originalA = switchA.IsOn;
             bool originalB = switchB.IsOn;
             string failure = null;
@@ -191,6 +240,44 @@ namespace GateVR.Application
                 return (false, failure);
 
             return (true, "Circuito correcto. Las cuatro combinaciones coinciden con "
+                + CurrentExercise.LogicConditionText + ".");
+        }
+
+        /// <summary>
+        /// Recorre A=0 y A=1. No modifica el interruptor B.
+        /// </summary>
+        private (bool IsSuccess, string FeedbackMessage) EvaluateSingleInput(SwitchNode switchA, LedNode led)
+        {
+            bool originalA = switchA.IsOn;
+            string failure = null;
+
+            try
+            {
+                bool[] values = { false, true };
+                for (int i = 0; i < values.Length; i++)
+                {
+                    bool a = values[i];
+                    switchA.SetState(a);
+
+                    bool expected = CurrentExercise.ExpectedTruthTable(a, false);
+                    bool actual = led.IsLit;
+                    if (actual == expected)
+                        continue;
+
+                    failure = "Falló la combinación A=" + Bit(a)
+                        + ". Se esperaba " + Bit(expected) + " y el LED mostró " + Bit(actual) + ".";
+                    break;
+                }
+            }
+            finally
+            {
+                switchA.SetState(originalA);
+            }
+
+            if (failure != null)
+                return (false, failure);
+
+            return (true, "Circuito correcto. Las dos combinaciones coinciden con "
                 + CurrentExercise.LogicConditionText + ".");
         }
 

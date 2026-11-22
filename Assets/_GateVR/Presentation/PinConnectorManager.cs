@@ -59,6 +59,51 @@ namespace GateVR.Presentation
             Connect(output, pin);
         }
 
+        /// <summary>
+        /// Quita el cable de una entrada de la estación y libera ese puerto en el nodo vigente.
+        /// </summary>
+        public void ReleaseGatePort(GateView gate, bool portB)
+        {
+            if (gate == null)
+                return;
+
+            InputPinView[] pins = gate.GetComponentsInChildren<InputPinView>(true);
+            for (int i = 0; i < pins.Length; i++)
+            {
+                InputPinView pin = pins[i];
+                if (pin == null || pin.IsLedInput || pin.GateOwner != gate || pin.IsPortB != portB)
+                    continue;
+
+                if (gate.Node != null)
+                {
+                    if (portB)
+                        gate.Node.DisconnectInputB();
+                    else
+                        gate.Node.DisconnectInputA();
+                }
+
+                RemoveWiresAt(pin);
+            }
+        }
+
+        /// <summary>
+        /// El cable de salida sigue unido a los mismos pines, pero escucha el nodo nuevo.
+        /// </summary>
+        public void RebindOutputWires(GateView gate)
+        {
+            if (gate == null)
+                return;
+
+            for (int i = 0; i < _wires.Count; i++)
+            {
+                WireView wire = _wires[i];
+                if (wire == null || wire.Output == null || !wire.Output.BelongsTo(gate))
+                    continue;
+
+                wire.Bind(wire.Output, wire.Input);
+            }
+        }
+
         public void ClearAllWires()
         {
             for (int i = _wires.Count - 1; i >= 0; i--)
