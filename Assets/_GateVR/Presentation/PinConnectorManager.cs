@@ -93,6 +93,63 @@ namespace GateVR.Presentation
         /// <summary>
         /// El cable de salida sigue unido a los mismos pines, pero escucha el nodo nuevo.
         /// </summary>
+        /// <summary>
+        /// Suelta un módulo que sale de la placa: corta sus cables y a quien escuchaba su salida.
+        /// </summary>
+        public void ReleaseModule(GateView gate)
+        {
+            if (gate == null || gate.Node == null)
+                return;
+
+            GateNode node = gate.Node;
+            InputPinView[] inputs = FindObjectsByType<InputPinView>(FindObjectsInactive.Include);
+            for (int i = 0; i < inputs.Length; i++)
+            {
+                InputPinView pin = inputs[i];
+                if (pin == null)
+                    continue;
+
+                if (pin.IsLedInput)
+                {
+                    if (pin.LedOwner != null && pin.LedOwner.Node != null && ReferenceEquals(pin.LedOwner.Node.Input, node))
+                        pin.LedOwner.Node.Disconnect();
+                    continue;
+                }
+
+                if (pin.GateOwner == null || pin.GateOwner.Node == null || pin.GateOwner == gate)
+                    continue;
+
+                if (!pin.IsPortB && ReferenceEquals(pin.GateOwner.Node.InputA, node))
+                    pin.GateOwner.Node.DisconnectInputA();
+                else if (pin.IsPortB && ReferenceEquals(pin.GateOwner.Node.InputB, node))
+                    pin.GateOwner.Node.DisconnectInputB();
+            }
+
+            node.DisconnectAll();
+
+            for (int i = _wires.Count - 1; i >= 0; i--)
+            {
+                WireView wire = _wires[i];
+                if (wire == null)
+                {
+                    _wires.RemoveAt(i);
+                    continue;
+                }
+
+                bool touchesGate = wire.Output != null && wire.Output.BelongsTo(gate);
+                if (!touchesGate && wire.Input != null && wire.Input.GateOwner == gate)
+                    touchesGate = true;
+
+                if (!touchesGate)
+                    continue;
+
+                ReleaseWire(wire);
+                _wires.RemoveAt(i);
+            }
+
+            NotifyWiringChanged();
+        }
+
         public void RebindOutputWires(GateView gate)
         {
             if (gate == null)

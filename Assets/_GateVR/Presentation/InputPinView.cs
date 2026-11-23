@@ -82,6 +82,13 @@ namespace GateVR.Presentation
                 renderers[i].enabled = accepts;
         }
 
+        public void AssignGate(GateView gate)
+        {
+            gateOwner = gate;
+            if (gate != null)
+                ledOwner = null;
+        }
+
         public void SelectPin()
         {
             if (connector == null)
@@ -92,7 +99,7 @@ namespace GateVR.Presentation
 
             if (!_acceptsConnection)
             {
-                connector.ShowMessage("La compuerta NOT solo usa la entrada A.");
+                connector.ShowMessage("Esta compuerta solo usa la entrada A.");
                 return;
             }
 

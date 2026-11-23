@@ -11,8 +11,9 @@ namespace GateVR.Presentation
     /// </summary>
     public sealed class LessonTaskPanel
     {
-        private const float Width = 760f;
-        private const float RowHeight = 56f;
+        private const float Width = 820f;
+        private const float RowHeight = 84f;
+        private const float BaseHeight = 970f;
 
         private readonly RectTransform _canvas;
         private readonly TMP_FontAsset _font;
@@ -22,7 +23,14 @@ namespace GateVR.Presentation
         private readonly RectTransform _fill;
         private readonly RectTransform _rows;
         private readonly LayoutElement _progressElement;
+        private readonly LayoutElement _actionsElement;
+        private readonly RectTransform _moduleRow;
+        private readonly Dictionary<GateType, Button> _gateButtons = new Dictionary<GateType, Button>();
         private readonly List<GameObject> _rowObjects = new List<GameObject>();
+        private readonly List<GameObject> _moduleButtons = new List<GameObject>();
+        private int _taskCount = 3;
+        private int _moduleGeneration;
+        private float _moduleExtra;
 
         private LessonTaskPanel(
             RectTransform canvas,
@@ -32,7 +40,10 @@ namespace GateVR.Presentation
             TextMeshProUGUI progressText,
             RectTransform fill,
             RectTransform rows,
-            LayoutElement progressElement)
+            LayoutElement progressElement,
+            LayoutElement actionsElement,
+            RectTransform moduleRow,
+            IEnumerable<KeyValuePair<GateType, Button>> gateButtons)
         {
             _canvas = canvas;
             _font = font;
@@ -42,6 +53,13 @@ namespace GateVR.Presentation
             _fill = fill;
             _rows = rows;
             _progressElement = progressElement;
+            _actionsElement = actionsElement;
+            _moduleRow = moduleRow;
+            if (gateButtons == null)
+                return;
+
+            foreach (KeyValuePair<GateType, Button> pair in gateButtons)
+                _gateButtons[pair.Key] = pair.Value;
         }
 
         public static LessonTaskPanel Mount(
@@ -89,10 +107,10 @@ namespace GateVR.Presentation
             column.childForceExpandWidth = true;
             column.childForceExpandHeight = false;
 
-            RectTransform header = CreateSection(content, "SeccionEncabezado", 190f, new Color(0.13f, 0.18f, 0.26f, 0.98f));
-            TextMeshProUGUI module = CreateLabel(header, "Txt_Module", "Fundamentos", 22f, font, FontStyles.Normal, new Color(0.72f, 0.84f, 0.95f));
-            AdoptText(header, title, 36f, font, FontStyles.Bold, 44f);
-            AdoptText(header, objective, 24f, font, FontStyles.Normal, 72f);
+            RectTransform header = CreateSection(content, "SeccionEncabezado", 220f, new Color(0.13f, 0.18f, 0.26f, 0.98f));
+            TextMeshProUGUI module = CreateLabel(header, "Txt_Module", "Fundamentos", 24f, font, FontStyles.Normal, new Color(0.72f, 0.84f, 0.95f));
+            AdoptText(header, title, 36f, font, FontStyles.Bold, 48f);
+            AdoptText(header, objective, 24f, font, FontStyles.Normal, 96f);
 
             RectTransform instructions = CreateSection(content, "SeccionInstrucciones", 290f, new Color(0.1f, 0.15f, 0.22f, 0.98f));
             AdoptText(instructions, condition, 30f, font, FontStyles.Bold, 40f);
@@ -126,21 +144,110 @@ namespace GateVR.Presentation
             rowsElement.flexibleWidth = 1f;
             rowsElement.preferredHeight = RowHeight;
 
-            RectTransform actions = CreateSection(content, "SeccionAcciones", 200f, new Color(0.12f, 0.16f, 0.23f, 0.98f));
+            RectTransform actions = CreateSection(content, "SeccionAcciones", 268f, new Color(0.12f, 0.16f, 0.23f, 0.98f));
+            LayoutElement actionsElement = actions.GetComponent<LayoutElement>();
             RectTransform lessonButtons = CreateRow(actions, "FilaLeccion", 68f);
             AdoptButton(lessonButtons, checkButton, font);
             AdoptButton(lessonButtons, nextButton, font);
             AdoptButton(lessonButtons, resetButton, font);
 
-            CreateLabel(actions, "Txt_GateSelector", "Compuerta", 20f, font, FontStyles.Normal, new Color(0.75f, 0.84f, 0.92f));
-            RectTransform gateRow = CreateRow(actions, "FilaCompuertas", 60f);
+            CreateLabel(actions, "Txt_GateSelector", "Compuerta", 22f, font, FontStyles.Normal, new Color(0.75f, 0.84f, 0.92f));
+            RectTransform gateRow = CreateRow(actions, "FilaCompuertas", 56f);
+            RectTransform gateRowExtra = CreateRow(actions, "FilaCompuertasExtra", 56f);
             andButton = EnsureGateButton(gateRow, andButton, "Btn_AND", "AND", font);
             orButton = EnsureGateButton(gateRow, orButton, "Btn_OR", "OR", font);
             notButton = EnsureGateButton(gateRow, notButton, "Btn_NOT", "NOT", font);
+            Button nandButton = EnsureGateButton(gateRow, null, "Btn_NAND", "NAND", font);
+            Button norButton = EnsureGateButton(gateRowExtra, null, "Btn_NOR", "NOR", font);
+            Button xorButton = EnsureGateButton(gateRowExtra, null, "Btn_XOR", "XOR", font);
+            Button xnorButton = EnsureGateButton(gateRowExtra, null, "Btn_XNOR", "XNOR", font);
+            var gateButtons = new Dictionary<GateType, Button>
+            {
+                { GateType.AND, andButton },
+                { GateType.OR, orButton },
+                { GateType.NOT, notButton },
+                { GateType.NAND, nandButton },
+                { GateType.NOR, norButton },
+                { GateType.XOR, xorButton },
+                { GateType.XNOR, xnorButton }
+            };
 
-            LessonTaskPanel panel = new LessonTaskPanel(canvas, font, module, truth, progressLabel, fill, rows, progressElement);
+            RectTransform moduleRow = CreateRow(actions, "FilaModulos", 0f);
+            moduleRow.gameObject.SetActive(false);
+
+            LessonTaskPanel panel = new LessonTaskPanel(
+                canvas,
+                font,
+                module,
+                truth,
+                progressLabel,
+                fill,
+                rows,
+                progressElement,
+                actionsElement,
+                moduleRow,
+                gateButtons);
             panel.Resize(3);
             return panel;
+        }
+
+        public Button GateButton(GateType type)
+        {
+            Button button;
+            if (_gateButtons.TryGetValue(type, out button))
+                return button;
+
+            return null;
+        }
+
+        public void SetStationModules(int count, int focusedIndex, System.Action<int> onSelect)
+        {
+            for (int i = _moduleButtons.Count - 1; i >= 0; i--)
+            {
+                if (_moduleButtons[i] != null)
+                    Object.Destroy(_moduleButtons[i]);
+            }
+
+            _moduleButtons.Clear();
+            bool show = count > 1 && _moduleRow != null;
+            if (_moduleRow != null)
+                _moduleRow.gameObject.SetActive(show);
+
+            _moduleExtra = show ? 58f : 0f;
+            if (_actionsElement != null)
+                _actionsElement.preferredHeight = 268f + _moduleExtra;
+
+            LayoutElement rowElement = _moduleRow != null ? _moduleRow.GetComponent<LayoutElement>() : null;
+            if (rowElement != null)
+            {
+                rowElement.preferredHeight = show ? 52f : 0f;
+                rowElement.minHeight = show ? 52f : 0f;
+            }
+
+            if (show)
+            {
+                int safeFocus = focusedIndex < 0 ? 0 : focusedIndex;
+                _moduleGeneration++;
+                for (int i = 0; i < count; i++)
+                {
+                    int moduleIndex = i;
+                    Button button = EnsureGateButton(_moduleRow, null, "Btn_Modulo_" + _moduleGeneration + "_" + (i + 1), "M" + (i + 1), _font);
+                    if (onSelect != null)
+                        button.onClick.AddListener(delegate { onSelect(moduleIndex); });
+
+                    Image image = button.targetGraphic as Image;
+                    if (image != null)
+                    {
+                        image.color = i == safeFocus
+                            ? new Color(0.95f, 0.72f, 0.2f, 1f)
+                            : new Color(0.16f, 0.24f, 0.36f, 1f);
+                    }
+
+                    _moduleButtons.Add(button.gameObject);
+                }
+            }
+
+            Resize(_taskCount);
         }
 
         public void SetModule(string moduleName)
@@ -198,15 +305,16 @@ namespace GateVR.Presentation
 
         private void Resize(int taskCount)
         {
+            _taskCount = taskCount < 0 ? 0 : taskCount;
             if (_progressElement != null)
-                _progressElement.preferredHeight = 96f + taskCount * (RowHeight + 8f);
+                _progressElement.preferredHeight = 96f + _taskCount * (RowHeight + 8f);
 
             if (_canvas == null)
                 return;
 
-            float height = 872f + taskCount * (RowHeight + 8f);
+            float height = BaseHeight + _moduleExtra + _taskCount * (RowHeight + 8f);
             _canvas.sizeDelta = new Vector2(Width, height);
-            _canvas.localScale = new Vector3(0.00122f, 0.00122f, 0.00122f);
+            _canvas.localScale = new Vector3(0.00115f, 0.00115f, 0.00115f);
 
             BoxCollider box = _canvas.GetComponent<BoxCollider>();
             if (box != null)
@@ -249,15 +357,68 @@ namespace GateVR.Presentation
             image.color = background;
             image.raycastTarget = false;
 
-            TextMeshProUGUI label = CreateLabel(
-                row.GetComponent<RectTransform>(),
-                "Label",
-                task.Order + ".  " + task.Title + "    " + mark,
-                22f,
+            RectTransform rowRect = row.GetComponent<RectTransform>();
+            HorizontalLayoutGroup layout = row.AddComponent<HorizontalLayoutGroup>();
+            layout.padding = new RectOffset(14, 14, 8, 8);
+            layout.spacing = 12f;
+            layout.childAlignment = TextAnchor.MiddleCenter;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childForceExpandWidth = false;
+            layout.childForceExpandHeight = true;
+
+            RectTransform textColumn = CreateChild(rowRect, "Texto");
+            VerticalLayoutGroup textLayout = textColumn.gameObject.AddComponent<VerticalLayoutGroup>();
+            textLayout.spacing = 2f;
+            textLayout.childAlignment = TextAnchor.MiddleLeft;
+            textLayout.childControlWidth = true;
+            textLayout.childControlHeight = true;
+            textLayout.childForceExpandWidth = true;
+            textLayout.childForceExpandHeight = false;
+            LayoutElement textElement = textColumn.gameObject.AddComponent<LayoutElement>();
+            textElement.flexibleWidth = 1f;
+            textElement.minWidth = 360f;
+
+            TextMeshProUGUI title = CreateLabel(
+                textColumn,
+                "Titulo",
+                task.Order + ".  " + task.Title,
+                24f,
+                _font,
+                FontStyles.Bold,
+                Color.white);
+            title.alignment = TextAlignmentOptions.MidlineLeft;
+            LayoutElement titleElement = title.GetComponent<LayoutElement>();
+            titleElement.preferredHeight = 30f;
+            titleElement.minHeight = 28f;
+
+            TextMeshProUGUI detail = CreateLabel(
+                textColumn,
+                "Detalle",
+                task.Description,
+                18f,
                 _font,
                 FontStyles.Normal,
+                new Color(0.86f, 0.91f, 0.95f));
+            detail.alignment = TextAlignmentOptions.TopLeft;
+            LayoutElement detailElement = detail.GetComponent<LayoutElement>();
+            detailElement.preferredHeight = 32f;
+            detailElement.minHeight = 28f;
+
+            TextMeshProUGUI status = CreateLabel(
+                rowRect,
+                "Estado",
+                mark,
+                20f,
+                _font,
+                FontStyles.Bold,
                 Color.white);
-            label.alignment = TextAlignmentOptions.MidlineLeft;
+            status.alignment = TextAlignmentOptions.Center;
+            LayoutElement statusElement = status.GetComponent<LayoutElement>();
+            statusElement.preferredWidth = 168f;
+            statusElement.minWidth = 150f;
+            statusElement.flexibleWidth = 0f;
+            statusElement.preferredHeight = 56f;
             return row;
         }
 
@@ -271,7 +432,7 @@ namespace GateVR.Presentation
                 right = Vector3.right;
             right.Normalize();
 
-            Vector3 position = board + right * 1.02f + Vector3.up * 0.46f;
+            Vector3 position = board + right * 1.12f + Vector3.up * 0.62f;
             canvas.position = position;
             if (camera == null)
                 return;

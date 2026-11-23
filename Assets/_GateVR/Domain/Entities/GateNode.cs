@@ -33,7 +33,7 @@ namespace GateVR.Domain.Entities
         }
 
         /// <summary>
-        /// 1 para NOT y 2 para AND, OR y el resto de compuertas binarias.
+        /// 1 para NOT. AND, OR, NAND, NOR, XOR y XNOR piden dos entradas.
         /// </summary>
         public int RequiredInputCount { get; private set; }
 

@@ -218,5 +218,32 @@ namespace GateVR.Application
                     "wire")
             }.AsReadOnly();
         }
+
+        public static IReadOnlyList<PracticeTaskDefinition> ForNetwork()
+        {
+            return new List<PracticeTaskDefinition>
+            {
+                new PracticeTaskDefinition(
+                    "wire",
+                    "Conecta el circuito",
+                    "Une los interruptores, las compuertas y el LED como indica el objetivo.",
+                    1,
+                    TaskConditionKind.WireCircuit),
+                new PracticeTaskDefinition(
+                    "try",
+                    "Prueba los interruptores A y B",
+                    "Cambia A y B con el controlador y observa el LED.",
+                    2,
+                    TaskConditionKind.TrySwitches,
+                    "wire"),
+                new PracticeTaskDefinition(
+                    "check",
+                    "Comprueba el circuito",
+                    "Pulsa Comprobar cuando la red cumpla la condición.",
+                    3,
+                    TaskConditionKind.CheckResult,
+                    "wire")
+            }.AsReadOnly();
+        }
     }
 }

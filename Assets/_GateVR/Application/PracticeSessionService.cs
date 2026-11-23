@@ -14,35 +14,7 @@ namespace GateVR.Application
 
         public PracticeSessionService()
         {
-            _exercises = new List<PracticeExercise>
-            {
-                new PracticeExercise(
-                    id: "and-01",
-                    title: "Compuerta AND",
-                    objective: "Construye un circuito donde el LED se encienda únicamente cuando A y B estén encendidos.",
-                    logicConditionText: "Y = A AND B",
-                    requiredGateType: "AND",
-                    expectedTruthTable: (a, b) => a && b,
-                    tasks: PracticeTasks.ForGate(false)),
-                new PracticeExercise(
-                    id: "or-01",
-                    title: "Compuerta OR",
-                    objective: "Construye un circuito donde el LED se encienda cuando al menos un interruptor esté encendido.",
-                    logicConditionText: "Y = A OR B",
-                    requiredGateType: "OR",
-                    expectedTruthTable: (a, b) => a || b,
-                    tasks: PracticeTasks.ForGate(false)),
-                new PracticeExercise(
-                    id: "not-01",
-                    title: "Compuerta NOT",
-                    objective: "Construye un circuito donde el LED se encienda cuando A esté apagado.",
-                    logicConditionText: "Y = NOT A",
-                    requiredGateType: "NOT",
-                    expectedTruthTable: (a, b) => !a,
-                    usesSingleInput: true,
-                    tasks: PracticeTasks.ForGate(true))
-            }.AsReadOnly();
-
+            _exercises = PracticeCatalog.Create();
             CurrentExercise = _exercises[0];
         }
 
@@ -118,6 +90,34 @@ namespace GateVR.Application
         }
 
         /// <summary>
+        /// Valida la placa completa. Si la práctica define una red, no basta con el chip del LED.
+        /// </summary>
+        public (bool IsSuccess, string FeedbackMessage) ValidateCurrentCircuit(
+            SwitchNode switchA,
+            SwitchNode switchB,
+            IReadOnlyList<StationGate> gates,
+            LedNode led)
+        {
+            if (switchA == null)
+                throw new ArgumentNullException(nameof(switchA));
+            if (switchB == null)
+                throw new ArgumentNullException(nameof(switchB));
+            if (led == null)
+                throw new ArgumentNullException(nameof(led));
+            if (gates == null || gates.Count == 0)
+                throw new ArgumentException("La estación no tiene compuertas.", nameof(gates));
+
+            if (CurrentExercise.Structure == null)
+                return ValidateCurrentCircuit(switchA, switchB, gates[0].Node, led);
+
+            var structural = ValidateNetwork(switchA, switchB, gates, led);
+            if (!structural.IsSuccess)
+                return structural;
+
+            return EvaluateTruthTable(switchA, switchB, led);
+        }
+
+        /// <summary>
         /// Revisa el cableado sin recorrer la tabla de verdad ni mover los interruptores.
         /// </summary>
         public (bool IsValid, string FeedbackMessage) InspectStructure(
@@ -138,6 +138,27 @@ namespace GateVR.Application
             return ValidateStructure(switchA, switchB, targetGate, led);
         }
 
+        public (bool IsValid, string FeedbackMessage) InspectStructure(
+            SwitchNode switchA,
+            SwitchNode switchB,
+            IReadOnlyList<StationGate> gates,
+            LedNode led)
+        {
+            if (switchA == null)
+                throw new ArgumentNullException(nameof(switchA));
+            if (switchB == null)
+                throw new ArgumentNullException(nameof(switchB));
+            if (led == null)
+                throw new ArgumentNullException(nameof(led));
+            if (gates == null || gates.Count == 0)
+                throw new ArgumentException("La estación no tiene compuertas.", nameof(gates));
+
+            if (CurrentExercise.Structure == null)
+                return InspectStructure(switchA, switchB, gates[0].Node, led);
+
+            return ValidateNetwork(switchA, switchB, gates, led);
+        }
+
         /// <summary>
         /// Quita los cables de la compuerta y del LED, y deja ambos interruptores apagados.
         /// </summary>
@@ -153,6 +174,28 @@ namespace GateVR.Application
                 throw new ArgumentNullException(nameof(led));
 
             targetGate.DisconnectAll();
+            led.Disconnect();
+            switchA.SetState(false);
+            switchB.SetState(false);
+        }
+
+        public void ResetCircuit(SwitchNode switchA, SwitchNode switchB, IReadOnlyList<GateNode> gates, LedNode led)
+        {
+            if (switchA == null)
+                throw new ArgumentNullException(nameof(switchA));
+            if (switchB == null)
+                throw new ArgumentNullException(nameof(switchB));
+            if (led == null)
+                throw new ArgumentNullException(nameof(led));
+            if (gates == null || gates.Count == 0)
+                throw new ArgumentException("La estación no tiene compuertas.", nameof(gates));
+
+            for (int i = 0; i < gates.Count; i++)
+            {
+                if (gates[i] != null)
+                    gates[i].DisconnectAll();
+            }
+
             led.Disconnect();
             switchA.SetState(false);
             switchB.SetState(false);
@@ -203,6 +246,135 @@ namespace GateVR.Application
                 return (false, "La señal del interruptor B no llega a la compuerta.");
 
             return (true, string.Empty);
+        }
+
+        private (bool IsSuccess, string FeedbackMessage) ValidateNetwork(
+            SwitchNode switchA,
+            SwitchNode switchB,
+            IReadOnlyList<StationGate> gates,
+            LedNode led)
+        {
+            if (ReferenceEquals(switchA, switchB))
+                return (false, "Los interruptores A y B deben ser dos nodos distintos.");
+
+            var byId = new Dictionary<string, GateNode>(StringComparer.Ordinal);
+            for (int i = 0; i < gates.Count; i++)
+            {
+                StationGate station = gates[i];
+                if (station == null || station.Node == null)
+                    return (false, "La estación tiene un módulo sin nodo lógico.");
+
+                if (byId.ContainsKey(station.Id))
+                    return (false, "La estación repite el módulo " + station.Id + ".");
+
+                byId.Add(station.Id, station.Node);
+            }
+
+            CircuitStructure structure = CurrentExercise.Structure;
+            for (int i = 0; i < structure.Modules.Count; i++)
+            {
+                CircuitModuleSpec module = structure.Modules[i];
+                GateNode node;
+                if (!byId.TryGetValue(module.Id, out node))
+                    return (false, "Falta el módulo " + module.Id + " (" + module.GateType + ").");
+
+                if (!string.Equals(node.GateName, module.GateType, StringComparison.OrdinalIgnoreCase))
+                {
+                    return (false, "El módulo " + module.Id + " debe ser " + module.GateType
+                        + " y es " + node.GateName + ".");
+                }
+            }
+
+            for (int i = 0; i < structure.Links.Count; i++)
+            {
+                CircuitLinkSpec link = structure.Links[i];
+                var source = ResolveSource(link.FromId, switchA, switchB, byId);
+                if (!source.Found)
+                    return (false, source.Error);
+
+                if (string.Equals(link.ToId, CircuitLinkSpec.Led, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (led.Input == null)
+                        return (false, "El LED no tiene una fuente conectada.");
+
+                    if (led.Input is SwitchNode)
+                        return (false, "El LED está conectado directamente a un interruptor. La señal debe pasar por las compuertas.");
+
+                    if (!ReferenceEquals(led.Input, source.Node))
+                        return (false, "El LED debe recibir la salida de " + link.FromId + ".");
+
+                    continue;
+                }
+
+                GateNode target;
+                if (!byId.TryGetValue(link.ToId, out target))
+                    return (false, "Falta el módulo " + link.ToId + ".");
+
+                bool portB = string.Equals(link.Port, "B", StringComparison.OrdinalIgnoreCase);
+                if (portB && target.RequiredInputCount < 2)
+                    return (false, "La compuerta " + target.GateName + " solo admite la entrada A.");
+
+                ISignalSource actual = portB ? target.InputB : target.InputA;
+                string portName = portB ? "B" : "A";
+                if (actual == null)
+                    return (false, "La entrada " + portName + " de " + link.ToId + " no tiene cable.");
+
+                if (!ReferenceEquals(actual, source.Node))
+                    return (false, "La entrada " + portName + " de " + link.ToId + " no recibe " + link.FromId + ".");
+            }
+
+            for (int i = 0; i < structure.Modules.Count; i++)
+            {
+                GateNode node = byId[structure.Modules[i].Id];
+                if (node.RequiredInputCount < 2 && node.InputB != null)
+                    return (false, "La compuerta " + node.GateName + " solo admite la entrada A. Desconecta la entrada B.");
+
+                if (HasCycle(node))
+                    return (false, "El circuito contiene un ciclo lógico.");
+            }
+
+            return (true, string.Empty);
+        }
+
+        private static (bool Found, ISignalSource Node, string Error) ResolveSource(
+            string id,
+            SwitchNode switchA,
+            SwitchNode switchB,
+            Dictionary<string, GateNode> byId)
+        {
+            if (string.Equals(id, CircuitLinkSpec.SwitchA, StringComparison.OrdinalIgnoreCase))
+                return (true, switchA, string.Empty);
+
+            if (string.Equals(id, CircuitLinkSpec.SwitchB, StringComparison.OrdinalIgnoreCase))
+                return (true, switchB, string.Empty);
+
+            GateNode gate;
+            if (!byId.TryGetValue(id, out gate))
+                return (false, null, "Falta el módulo " + id + ".");
+
+            return (true, gate, string.Empty);
+        }
+
+        private static bool HasCycle(GateNode origin)
+        {
+            return Walk(origin, new HashSet<ISignalSource>());
+        }
+
+        private static bool Walk(ISignalSource node, HashSet<ISignalSource> stack)
+        {
+            if (node == null)
+                return false;
+
+            if (!stack.Add(node))
+                return true;
+
+            GateNode gate = node as GateNode;
+            bool cycle = false;
+            if (gate != null)
+                cycle = Walk(gate.InputA, stack) || Walk(gate.InputB, stack);
+
+            stack.Remove(node);
+            return cycle;
         }
 
         private (bool IsSuccess, string FeedbackMessage) ValidateSingleInput(SwitchNode switchA, GateNode targetGate)

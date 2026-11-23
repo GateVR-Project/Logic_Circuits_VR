@@ -26,6 +26,9 @@ internal static class Phase1LogicTests
         TestReplacingGateDropsOldSubscriptions();
         TestDirectSwitchIsRejectedWithoutMutating();
         TestResetCircuit();
+        TestSevenGateTables();
+        TestGateSubstitutionKeepsCompatibleInputs();
+        TestCompoundNetworks();
 
         if (_failures == 0)
         {
@@ -212,7 +215,7 @@ internal static class Phase1LogicTests
     {
         Section("Validación estructural y tabla de verdad");
         PracticeSessionService session = new PracticeSessionService();
-        Check(session.Exercises.Count == 3, "hay tres ejercicios de estación");
+        Check(session.Exercises.Count == 10, "hay siete fundamentos y tres prácticas compuestas");
         Check(session.CurrentExercise.Id == "and-01", "el ejercicio inicial es AND");
 
         SwitchNode a = new SwitchNode();
@@ -349,9 +352,15 @@ internal static class Phase1LogicTests
         PracticeExercise notExercise = session.AdvanceExercise();
         Check(notExercise.Id == "not-01" && notExercise.InitialGateType == "NOT" && notExercise.UsesSingleInput, "Siguiente deja la práctica NOT en una estación NOT");
 
-        PracticeExercise andAgain = session.AdvanceExercise();
-        Check(andAgain.Id == "and-01" && andAgain.InitialGateType == "AND", "Siguiente vuelve a AND");
+        PracticeExercise nandExercise = session.AdvanceExercise();
+        Check(nandExercise.Id == "nand-01" && nandExercise.InitialGateType == "NAND", "Siguiente deja la práctica NAND en una estación NAND");
 
+        session.SelectExercise("and-01");
+        for (int step = 0; step < session.Exercises.Count; step++)
+            session.AdvanceExercise();
+
+        Check(session.CurrentExercise.Id == "and-01", "Siguiente recorre el catálogo y vuelve a AND");
+        session.SelectExercise("and-01");
         session.AdvanceExercise();
         SwitchNode a = new SwitchNode();
         SwitchNode b = new SwitchNode();
@@ -776,6 +785,228 @@ internal static class Phase1LogicTests
     {
         Console.WriteLine("");
         Console.WriteLine(title);
+    }
+
+    private static void TestSevenGateTables()
+    {
+        Section("Tablas de verdad de las siete compuertas");
+        CheckBinaryTable(new AndGate(), (a, b) => a && b, "AND");
+        CheckBinaryTable(new OrGate(), (a, b) => a || b, "OR");
+        CheckBinaryTable(new NandGate(), (a, b) => !(a && b), "NAND");
+        CheckBinaryTable(new NorGate(), (a, b) => !(a || b), "NOR");
+        CheckBinaryTable(new XorGate(), (a, b) => a != b, "XOR");
+        CheckBinaryTable(new XnorGate(), (a, b) => a == b, "XNOR");
+
+        GateNode not = new GateNode(new NotGate());
+        SwitchNode a = new SwitchNode();
+        SwitchNode b = new SwitchNode();
+        LedNode led = new LedNode();
+        Check(not.RequiredInputCount == 1, "NOT pide una entrada");
+        Check(not.TryConnectInputA(a).IsValid, "NOT acepta A");
+        Check(!not.TryConnectInputB(b).IsValid && not.InputB == null, "NOT no tiene Input B");
+        Check(led.TryConnect(not).IsValid, "el LED escucha a NOT");
+        a.SetState(false);
+        Check(led.IsLit, "NOT 0 -> 1");
+        a.SetState(true);
+        Check(!led.IsLit, "NOT 1 -> 0");
+        Check(SubscriberCount(not) == 1, "NOT conserva un solo suscriptor");
+    }
+
+    private static void CheckBinaryTable(ILogicGate gate, Func<bool, bool, bool> expected, string name)
+    {
+        GateNode node = new GateNode(gate);
+        SwitchNode a = new SwitchNode();
+        SwitchNode b = new SwitchNode();
+        LedNode led = new LedNode();
+        Check(node.RequiredInputCount == 2, name + " pide dos entradas");
+        Check(node.TryConnectInputA(a).IsValid && node.TryConnectInputB(b).IsValid, name + " acepta A y B");
+        Check(led.TryConnect(node).IsValid, name + " alimenta el LED");
+
+        bool[,] rows = { { false, false }, { false, true }, { true, false }, { true, true } };
+        for (int i = 0; i < 4; i++)
+        {
+            bool inputA = rows[i, 0];
+            bool inputB = rows[i, 1];
+            a.SetState(inputA);
+            b.SetState(inputB);
+            bool want = expected(inputA, inputB);
+            Check(node.GetSignal() == want && led.IsLit == want, name + " " + BitText(inputA) + BitText(inputB) + " -> " + BitText(want));
+        }
+
+        Check(SubscriberCount(node) == 1, name + " no duplica la suscripción del LED");
+        Check(gate.Evaluate(null) == false && gate.Evaluate(new bool[0]) == false, name + " sin entradas no emite señal");
+    }
+
+    private static void TestGateSubstitutionKeepsCompatibleInputs()
+    {
+        Section("Sustituir AND por XOR conserva A y B; NOT suelta B");
+        SwitchNode a = new SwitchNode();
+        SwitchNode b = new SwitchNode();
+        GateNode and = new GateNode(new AndGate());
+        LedNode led = new LedNode();
+        Check(and.TryConnectInputA(a).IsValid && and.TryConnectInputB(b).IsValid && led.TryConnect(and).IsValid, "cableado AND de partida");
+
+        ISignalSource keptA = and.InputA;
+        ISignalSource keptB = and.InputB;
+        and.DisconnectAll();
+        GateNode xor = new GateNode(new XorGate());
+        Check(xor.TryConnectInputA(keptA).IsValid && xor.TryConnectInputB(keptB).IsValid, "XOR conserva las dos entradas");
+        Check(led.ReplaceInput(xor).IsValid, "el LED pasa a XOR");
+        Check(SubscriberCount(and) == 0 && SubscriberCount(xor) == 1, "AND ya no tiene suscriptores");
+        a.SetState(true);
+        b.SetState(false);
+        Check(led.IsLit, "XOR 10 -> 1 tras el reemplazo");
+        b.SetState(true);
+        Check(!led.IsLit, "XOR 11 -> 0 tras el reemplazo");
+
+        GateNode not = new GateNode(new NotGate());
+        Check(not.TryConnectInputA(keptA).IsValid, "NOT conserva A");
+        Check(!not.TryConnectInputB(keptB).IsValid && not.InputB == null, "NOT suelta B");
+        Check(led.ReplaceInput(not).IsValid && SubscriberCount(xor) == 0 && SubscriberCount(not) == 1, "el reemplazo no deja suscriptores duplicados");
+    }
+
+    private static void TestCompoundNetworks()
+    {
+        Section("Redes de dos y tres compuertas");
+        PracticeSessionService session = new PracticeSessionService();
+        int fundamentals = 0;
+        int applied = 0;
+        for (int i = 0; i < session.Exercises.Count; i++)
+        {
+            if (session.Exercises[i].ModuleName == "Fundamentos")
+                fundamentals++;
+            if (session.Exercises[i].ModuleName == "Aplicación Real")
+                applied++;
+        }
+
+        Check(fundamentals == 7 && applied == 3, "el catálogo separa Fundamentos y Aplicación Real");
+        session.SelectExercise("app-nand-01");
+        Check(session.CurrentExercise.Structure != null && session.CurrentExercise.Structure.Modules.Count == 2, "la NAND compuesta exige dos módulos");
+        Check(!session.CurrentExercise.KeepCompatibleWiring, "la práctica compuesta empieza sin cables heredados");
+
+        SwitchNode a = new SwitchNode();
+        SwitchNode b = new SwitchNode();
+        a.SetState(true);
+        bool originalB = b.IsOn;
+        GateNode and = new GateNode(new AndGate());
+        GateNode not = new GateNode(new NotGate());
+        LedNode led = new LedNode();
+        Check(and.TryConnectInputA(a).IsValid && and.TryConnectInputB(b).IsValid, "AND recibe A y B");
+        Check(not.TryConnectInputA(and).IsValid, "NOT recibe la salida de AND");
+        Check(led.TryConnect(not).IsValid, "el LED recibe la NOT");
+        var cycle = and.ReplaceInputA(not);
+        Check(!cycle.IsValid && ReferenceEquals(and.InputA, a), "un ciclo AND-NOT se rechaza y conserva el cable");
+
+        var station = new List<StationGate>
+        {
+            new StationGate("m1", and),
+            new StationGate("m2", not)
+        };
+        var built = session.ValidateCurrentCircuit(a, b, station, led);
+        Check(built.IsSuccess, built.FeedbackMessage);
+        Check(a.IsOn && b.IsOn == originalB, "la tabla compuesta restaura los interruptores");
+        Check(SubscriberCount(and) == 1 && SubscriberCount(not) == 1, "cada compuerta conserva un suscriptor");
+
+        LessonProgress progress = new LessonProgress(session.CurrentExercise);
+        progress.NoteWiring(true);
+        progress.NoteValidation(true);
+        Check(Find(progress, "try").State == LessonTaskState.Pending, "la tabla interna no cuenta como prueba manual");
+        progress.NoteWiring(false);
+        Check(Find(progress, "wire").State == LessonTaskState.Invalidated, "quitar un cable de la red invalida el cableado");
+
+        GateNode integrated = new GateNode(new NandGate());
+        LedNode integratedLed = new LedNode();
+        integrated.TryConnectInputA(a);
+        integrated.TryConnectInputB(b);
+        integratedLed.TryConnect(integrated);
+        var chip = session.ValidateCurrentCircuit(a, b, new List<StationGate> { new StationGate("m1", integrated) }, integratedLed);
+        Check(!chip.IsSuccess && chip.FeedbackMessage.Contains("debe ser AND"), chip.FeedbackMessage);
+
+        GateNode onlyAnd = new GateNode(new AndGate());
+        LedNode onlyLed = new LedNode();
+        onlyAnd.TryConnectInputA(a);
+        onlyAnd.TryConnectInputB(b);
+        onlyLed.TryConnect(onlyAnd);
+        var missingNot = session.ValidateCurrentCircuit(a, b, new List<StationGate> { new StationGate("m1", onlyAnd) }, onlyLed);
+        Check(!missingNot.IsSuccess && missingNot.FeedbackMessage.Contains("m2"), missingNot.FeedbackMessage);
+
+        GateNode wrong = new GateNode(new NandGate());
+        wrong.TryConnectInputA(a);
+        wrong.TryConnectInputB(b);
+        GateNode trailingNot = new GateNode(new NotGate());
+        trailingNot.TryConnectInputA(wrong);
+        LedNode wrongLed = new LedNode();
+        wrongLed.TryConnect(trailingNot);
+        var wrongType = session.ValidateCurrentCircuit(
+            a,
+            b,
+            new List<StationGate> { new StationGate("m1", wrong), new StationGate("m2", trailingNot) },
+            wrongLed);
+        Check(!wrongType.IsSuccess && wrongType.FeedbackMessage.Contains("debe ser AND"), wrongType.FeedbackMessage);
+        Check(session.CurrentExercise.Id == "app-nand-01", "rechazar la estructura no cambia la práctica");
+
+        and.DisconnectInputB();
+        var incomplete = session.ValidateCurrentCircuit(a, b, station, led);
+        Check(!incomplete.IsSuccess && incomplete.FeedbackMessage.Contains("no tiene cable"), incomplete.FeedbackMessage);
+
+        session.SelectExercise("app-nor-01");
+        GateNode or = new GateNode(new OrGate());
+        GateNode norNot = new GateNode(new NotGate());
+        LedNode norLed = new LedNode();
+        or.TryConnectInputA(a);
+        or.TryConnectInputB(b);
+        norNot.TryConnectInputA(or);
+        norLed.TryConnect(norNot);
+        var nor = session.ValidateCurrentCircuit(
+            a,
+            b,
+            new List<StationGate> { new StationGate("m1", or), new StationGate("m2", norNot) },
+            norLed);
+        Check(nor.IsSuccess, nor.FeedbackMessage);
+        a.SetState(false);
+        b.SetState(false);
+        Check(norLed.IsLit, "NOR compuesta 00 -> 1");
+        a.SetState(true);
+        Check(!norLed.IsLit, "NOR compuesta 10 -> 0");
+
+        session.SelectExercise("app-branch-01");
+        SwitchNode branchA = new SwitchNode();
+        SwitchNode branchB = new SwitchNode();
+        GateNode branchAnd = new GateNode(new AndGate());
+        GateNode branchNot = new GateNode(new NotGate());
+        GateNode branchOr = new GateNode(new OrGate());
+        LedNode branchLed = new LedNode();
+        Check(branchAnd.TryConnectInputA(branchA).IsValid && branchAnd.TryConnectInputB(branchB).IsValid, "la AND de la rama recibe A y B");
+        Check(branchNot.TryConnectInputA(branchA).IsValid, "la NOT comparte el interruptor A");
+        Check(branchOr.TryConnectInputA(branchAnd).IsValid && branchOr.TryConnectInputB(branchNot).IsValid, "la OR reúne AND y NOT");
+        Check(branchLed.TryConnect(branchOr).IsValid, "el LED recibe la OR");
+        var branch = session.ValidateCurrentCircuit(
+            branchA,
+            branchB,
+            new List<StationGate>
+            {
+                new StationGate("m1", branchAnd),
+                new StationGate("m2", branchNot),
+                new StationGate("m3", branchOr)
+            },
+            branchLed);
+        Check(branch.IsSuccess, branch.FeedbackMessage);
+        Check(SubscriberCount(branchA) == 2, "el interruptor A alimenta dos compuertas sin duplicar una misma entrada");
+        branchA.SetState(true);
+        branchB.SetState(false);
+        Check(!branchLed.IsLit, "la rama 10 -> 0");
+        branchB.SetState(true);
+        Check(branchLed.IsLit, "la rama 11 -> 1");
+
+        var gates = new List<GateNode> { branchAnd, branchNot, branchOr };
+        session.ResetCircuit(branchA, branchB, gates, branchLed);
+        Check(session.CurrentExercise.Id == "app-branch-01", "Reiniciar conserva la práctica compuesta");
+        Check(!branchA.IsOn && !branchB.IsOn && branchLed.Input == null && branchAnd.InputA == null, "Reiniciar suelta la red");
+    }
+
+    private static string BitText(bool value)
+    {
+        return value ? "1" : "0";
     }
 
     private static void Check(bool condition, string message)

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using GateVR.Application;
 using GateVR.Domain.Entities;
 using TMPro;
@@ -39,11 +40,23 @@ namespace GateVR.Presentation
         private PracticeSessionService _session;
         private LessonProgress _progress;
         private LessonTaskPanel _tasks;
+        private readonly List<GateView> _modules = new List<GateView>();
+        private GateView _focused;
+        private Vector3 _gateHome;
+        private bool _gateHomeReady;
 
         private void Awake()
         {
             _session = new PracticeSessionService();
             _progress = new LessonProgress(_session.CurrentExercise);
+            if (activeGate != null)
+            {
+                _gateHome = activeGate.transform.localPosition;
+                _gateHomeReady = true;
+                _modules.Add(activeGate);
+                _focused = activeGate;
+            }
+
             EnsureGateButtons();
             RefreshNextButton();
         }
@@ -67,6 +80,11 @@ namespace GateVR.Presentation
 
             if (notButton != null)
                 notButton.onClick.AddListener(SelectNot);
+
+            ListenGate(GateType.NAND, SelectNand);
+            ListenGate(GateType.NOR, SelectNor);
+            ListenGate(GateType.XOR, SelectXor);
+            ListenGate(GateType.XNOR, SelectXnor);
 
             if (switchA != null)
                 switchA.Interacted += OnSwitchA;
@@ -98,6 +116,11 @@ namespace GateVR.Presentation
             if (notButton != null)
                 notButton.onClick.RemoveListener(SelectNot);
 
+            SilenceGate(GateType.NAND, SelectNand);
+            SilenceGate(GateType.NOR, SelectNor);
+            SilenceGate(GateType.XOR, SelectXor);
+            SilenceGate(GateType.XNOR, SelectXnor);
+
             if (switchA != null)
                 switchA.Interacted -= OnSwitchA;
 
@@ -111,6 +134,7 @@ namespace GateVR.Presentation
         private void Start()
         {
             ShowCurrentExercise();
+            ConfigureStation(_session.CurrentExercise);
             HighlightSelectedGate();
             RefreshWiring();
             RefreshProgressUi();
@@ -125,7 +149,14 @@ namespace GateVR.Presentation
             if (!TryGetNodes(out nodeA, out nodeB, out gate, out bulb))
                 return;
 
-            var result = _session.ValidateCurrentCircuit(nodeA, nodeB, gate, bulb);
+            IReadOnlyList<StationGate> station = CaptureStation();
+            if (station.Count == 0)
+            {
+                SetFeedback("La estación no tiene compuertas activas.", errorColor);
+                return;
+            }
+
+            var result = _session.ValidateCurrentCircuit(nodeA, nodeB, station, bulb);
             RefreshWiring();
             _progress.NoteValidation(result.IsSuccess);
             RefreshProgressUi();
@@ -150,8 +181,39 @@ namespace GateVR.Presentation
 
             PracticeExercise exercise = _session.AdvanceExercise();
             _progress.Load(exercise);
-            LoadPracticeStation(exercise);
+            ConfigureStation(exercise);
             RefreshProgressUi();
+        }
+
+        public void SelectNand()
+        {
+            ApplyGate(GateType.NAND, true);
+        }
+
+        public void SelectNor()
+        {
+            ApplyGate(GateType.NOR, true);
+        }
+
+        public void SelectXor()
+        {
+            ApplyGate(GateType.XOR, true);
+        }
+
+        public void SelectXnor()
+        {
+            ApplyGate(GateType.XNOR, true);
+        }
+
+        public void FocusModule(int index)
+        {
+            if (index < 0 || index >= _modules.Count || !_modules[index].gameObject.activeInHierarchy)
+                return;
+
+            _focused = _modules[index];
+            HighlightSelectedGate();
+            if (_tasks != null)
+                _tasks.SetStationModules(ActiveModuleCount(), index, FocusModule);
         }
 
         public void SelectAnd()
@@ -183,27 +245,52 @@ namespace GateVR.Presentation
         }
 
         /// <summary>
-        /// Carga la estación de la práctica. No llama a Comprobar.
+        /// Prepara los módulos de la práctica y su compuerta inicial. No llama a Comprobar.
         /// </summary>
-        private void LoadPracticeStation(PracticeExercise exercise)
+        private void ConfigureStation(PracticeExercise exercise)
         {
-            GateType station;
-            if (!TryStationType(exercise.InitialGateType, out station))
+            int needed = exercise.Structure == null ? 1 : exercise.Structure.Modules.Count;
+            EnsureModules(needed);
+            _focused = _modules.Count > 0 ? _modules[0] : activeGate;
+
+            if (exercise.Structure == null)
             {
-                ShowCurrentExercise();
-                SetFeedback(
-                    "La práctica pide una estación " + exercise.InitialGateType
-                    + " y esa compuerta aún no está en el laboratorio.",
-                    errorColor);
-                return;
+                GateType station;
+                if (!GateView.TryParse(exercise.InitialGateType, out station))
+                {
+                    ShowCurrentExercise();
+                    SetFeedback(
+                        "La práctica pide una estación " + exercise.InitialGateType
+                        + " y esa compuerta aún no está en el laboratorio.",
+                        errorColor);
+                    return;
+                }
+
+                ApplyGate(station, false);
+            }
+            else
+            {
+                for (int i = 0; i < exercise.Structure.Modules.Count && i < _modules.Count; i++)
+                {
+                    GateType station;
+                    if (!GateView.TryParse(exercise.Structure.Modules[i].GateType, out station))
+                        continue;
+
+                    _focused = _modules[i];
+                    ApplyGate(station, false);
+                }
+
+                _focused = _modules[0];
             }
 
-            ApplyGate(station, false);
-            if (exercise.KeepCompatibleWiring)
-                return;
-
-            if (ClearCircuit())
+            if (!exercise.KeepCompatibleWiring && ClearCircuit())
                 ShowCurrentExercise();
+
+            HighlightSelectedGate();
+            if (_tasks != null)
+                _tasks.SetStationModules(ActiveModuleCount(), 0, FocusModule);
+
+            RefreshWiring();
         }
 
         /// <summary>
@@ -212,19 +299,20 @@ namespace GateVR.Presentation
         /// </summary>
         private void ApplyGate(GateType type, bool studentChoice)
         {
-            if (activeGate == null || activeGate.Node == null)
+            GateView target = _focused != null ? _focused : activeGate;
+            if (target == null || target.Node == null)
             {
                 SetFeedback("Asigna la compuerta activa en el Practice Board.", errorColor);
                 return;
             }
 
-            GateNode previous = activeGate.Node;
+            GateNode previous = target.Node;
             bool ledFollowsGate = led != null && led.Node != null && ReferenceEquals(led.Node.Input, previous);
-            bool changed = activeGate.TryChangeType(type);
+            bool changed = target.TryChangeType(type);
 
             if (changed && ledFollowsGate)
             {
-                var moved = led.Node.ReplaceInput(activeGate.Node);
+                var moved = led.Node.ReplaceInput(target.Node);
                 if (!moved.IsValid)
                 {
                     SetFeedback(moved.ErrorMessage, errorColor);
@@ -236,15 +324,15 @@ namespace GateVR.Presentation
 
             if (changed && connector != null)
             {
-                connector.RebindOutputWires(activeGate);
+                connector.RebindOutputWires(target);
                 if (type == GateType.NOT)
-                    connector.ReleaseGatePort(activeGate, portB: true);
+                    connector.ReleaseGatePort(target, portB: true);
             }
 
             HighlightSelectedGate();
             RefreshViews();
-            if (studentChoice && activeGate.Node != null)
-                _progress.NoteManualGate(activeGate.Node.GateName);
+            if (studentChoice && target.Node != null)
+                _progress.NoteManualGate(target.Node.GateName);
 
             RefreshWiring();
             ShowCurrentExercise();
@@ -260,12 +348,25 @@ namespace GateVR.Presentation
             if (!TryGetNodes(out nodeA, out nodeB, out gate, out bulb))
                 return false;
 
-            _session.ResetCircuit(nodeA, nodeB, gate, bulb);
+            var nodes = new List<GateNode>();
+            for (int i = 0; i < _modules.Count; i++)
+            {
+                if (_modules[i] != null && _modules[i].Node != null)
+                    nodes.Add(_modules[i].Node);
+            }
+
+            if (nodes.Count == 0)
+                nodes.Add(gate);
+
+            _session.ResetCircuit(nodeA, nodeB, nodes, bulb);
             if (connector != null)
                 connector.ClearAllWires();
 
-            if (activeGate != null)
-                activeGate.RefreshAppearance();
+            for (int i = 0; i < _modules.Count; i++)
+            {
+                if (_modules[i] != null)
+                    _modules[i].RefreshAppearance();
+            }
 
             RefreshViews();
             return true;
@@ -302,7 +403,11 @@ namespace GateVR.Presentation
             if (!TryGetNodes(out nodeA, out nodeB, out gate, out bulb))
                 return;
 
-            var structure = _session.InspectStructure(nodeA, nodeB, gate, bulb);
+            IReadOnlyList<StationGate> station = CaptureStation();
+            if (station.Count == 0)
+                return;
+
+            var structure = _session.InspectStructure(nodeA, nodeB, station, bulb);
             _progress.NoteWiring(structure.IsValid);
         }
 
@@ -320,30 +425,6 @@ namespace GateVR.Presentation
                 return;
 
             nextButton.interactable = developmentFreeNavigation || _progress.IsPracticeComplete;
-        }
-
-        private static bool TryStationType(string gateName, out GateType type)
-        {
-            if (string.Equals(gateName, "AND", StringComparison.OrdinalIgnoreCase))
-            {
-                type = GateType.AND;
-                return true;
-            }
-
-            if (string.Equals(gateName, "OR", StringComparison.OrdinalIgnoreCase))
-            {
-                type = GateType.OR;
-                return true;
-            }
-
-            if (string.Equals(gateName, "NOT", StringComparison.OrdinalIgnoreCase))
-            {
-                type = GateType.NOT;
-                return true;
-            }
-
-            type = GateType.AND;
-            return false;
         }
 
         private void ShowCurrentExercise()
@@ -458,14 +539,153 @@ namespace GateVR.Presentation
                 ref andButton,
                 ref orButton,
                 ref notButton);
+            if (_tasks == null)
+                return;
+
+            andButton = _tasks.GateButton(GateType.AND);
+            orButton = _tasks.GateButton(GateType.OR);
+            notButton = _tasks.GateButton(GateType.NOT);
+        }
+
+        private void ListenGate(GateType type, UnityEngine.Events.UnityAction action)
+        {
+            Button button = _tasks != null ? _tasks.GateButton(type) : null;
+            if (button != null)
+                button.onClick.AddListener(action);
+        }
+
+        private void SilenceGate(GateType type, UnityEngine.Events.UnityAction action)
+        {
+            Button button = _tasks != null ? _tasks.GateButton(type) : null;
+            if (button != null)
+                button.onClick.RemoveListener(action);
+        }
+
+        private void EnsureModules(int count)
+        {
+            if (count < 1)
+                count = 1;
+
+            if (_modules.Count == 0 && activeGate != null)
+            {
+                _modules.Add(activeGate);
+                _focused = activeGate;
+            }
+
+            while (_modules.Count < count && activeGate != null)
+            {
+                GateView clone = Instantiate(activeGate, activeGate.transform.parent);
+                clone.name = "GateModule_" + (_modules.Count + 1);
+                ClaimPins(clone);
+                VrPointerBinding.BindGate(clone);
+                _modules.Add(clone);
+            }
+
+            for (int i = 0; i < _modules.Count; i++)
+            {
+                GateView module = _modules[i];
+                if (module == null)
+                    continue;
+
+                bool visible = i < count;
+                if (!visible)
+                {
+                    if (module.gameObject.activeSelf && connector != null)
+                        connector.ReleaseModule(module);
+
+                    module.gameObject.SetActive(false);
+                    continue;
+                }
+
+                module.gameObject.SetActive(true);
+                PlaceModule(module, i, count);
+            }
+        }
+
+        private void PlaceModule(GateView module, int index, int count)
+        {
+            Transform body = module.transform;
+            Vector3 home = _gateHomeReady ? _gateHome : body.localPosition;
+            if (count <= 1)
+            {
+                body.localPosition = home;
+                body.localScale = new Vector3(0.25f, 0.25f, 0.25f);
+                return;
+            }
+
+            float scale = count >= 4 ? 0.16f : count == 3 ? 0.18f : 0.2f;
+            float step = count >= 4 ? 0.2f : count == 3 ? 0.24f : 0.32f;
+            float start = -step * (count - 1) * 0.5f;
+            float z = index % 2 == 0 ? 0.04f : -0.04f;
+            body.localScale = new Vector3(scale, scale, scale);
+            body.localPosition = new Vector3(home.x + start + step * index, home.y, home.z + z);
+        }
+
+        private static void ClaimPins(GateView gate)
+        {
+            InputPinView[] inputs = gate.GetComponentsInChildren<InputPinView>(true);
+            for (int i = 0; i < inputs.Length; i++)
+            {
+                if (inputs[i] != null && !inputs[i].IsLedInput)
+                    inputs[i].AssignGate(gate);
+            }
+
+            OutputPinView[] outputs = gate.GetComponentsInChildren<OutputPinView>(true);
+            for (int i = 0; i < outputs.Length; i++)
+            {
+                if (outputs[i] != null)
+                    outputs[i].AssignGate(gate);
+            }
+        }
+
+        private int ActiveModuleCount()
+        {
+            int count = 0;
+            for (int i = 0; i < _modules.Count; i++)
+            {
+                if (_modules[i] != null && _modules[i].gameObject.activeInHierarchy)
+                    count++;
+            }
+
+            return count;
+        }
+
+        private IReadOnlyList<StationGate> CaptureStation()
+        {
+            var station = new List<StationGate>();
+            int visible = 0;
+            for (int i = 0; i < _modules.Count; i++)
+            {
+                GateView module = _modules[i];
+                if (module == null || !module.gameObject.activeInHierarchy || module.Node == null)
+                    continue;
+
+                visible++;
+                station.Add(new StationGate("m" + visible, module.Node));
+            }
+
+            return station;
         }
 
         private void HighlightSelectedGate()
         {
-            GateType type = activeGate != null ? activeGate.Type : GateType.AND;
+            GateView target = _focused != null ? _focused : activeGate;
+            GateType type = target != null ? target.Type : GateType.AND;
             Paint(andButton, type == GateType.AND);
             Paint(orButton, type == GateType.OR);
             Paint(notButton, type == GateType.NOT);
+            Paint(ButtonOf(GateType.NAND), type == GateType.NAND);
+            Paint(ButtonOf(GateType.NOR), type == GateType.NOR);
+            Paint(ButtonOf(GateType.XOR), type == GateType.XOR);
+            Paint(ButtonOf(GateType.XNOR), type == GateType.XNOR);
+        }
+
+        private Button ButtonOf(GateType type)
+        {
+            if (_tasks == null)
+                return null;
+
+            return _tasks.GateButton(type);
         }
 
         private static void Paint(Button button, bool selected)

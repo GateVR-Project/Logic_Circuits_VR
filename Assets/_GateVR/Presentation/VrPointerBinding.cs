@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Reflection;
 using Oculus.Interaction;
 using Oculus.Interaction.Surfaces;
@@ -14,6 +15,22 @@ namespace GateVR.Presentation
     [DefaultExecutionOrder(-50)]
     public class VrPointerBinding : MonoBehaviour
     {
+        private static readonly HashSet<InteractableUnityEventWrapper> _listened = new HashSet<InteractableUnityEventWrapper>();
+
+        public static void BindGate(GateView gate)
+        {
+            if (gate == null)
+                return;
+
+            OutputPinView[] outputs = gate.GetComponentsInChildren<OutputPinView>(true);
+            for (int i = 0; i < outputs.Length; i++)
+                BindOutput(outputs[i]);
+
+            InputPinView[] inputs = gate.GetComponentsInChildren<InputPinView>(true);
+            for (int i = 0; i < inputs.Length; i++)
+                BindInput(inputs[i]);
+        }
+
         private void Awake()
         {
             int switches = BindAll(FindObjectsByType<SwitchView>(), BindSwitch);
@@ -66,6 +83,9 @@ namespace GateVR.Presentation
 
         private static void Listen(InteractableUnityEventWrapper wrapper, UnityAction action)
         {
+            if (wrapper == null || !_listened.Add(wrapper))
+                return;
+
             if (wrapper.WhenSelect == null)
             {
                 FieldInfo field = typeof(InteractableUnityEventWrapper).GetField(

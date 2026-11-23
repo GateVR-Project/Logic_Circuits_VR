@@ -118,3 +118,10 @@ InitTestScene*.unity*
 .idea/
 .vs/
 .cursor/
+
+# Local backups
+/Backups/
+
+# .NET build artifacts
+**/bin/
+**/obj/

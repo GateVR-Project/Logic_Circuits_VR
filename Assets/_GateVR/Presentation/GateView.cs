@@ -9,7 +9,11 @@ namespace GateVR.Presentation
     {
         AND,
         OR,
-        NOT
+        NOT,
+        NAND,
+        NOR,
+        XOR,
+        XNOR
     }
 
     /// <summary>
@@ -99,7 +103,25 @@ namespace GateVR.Presentation
 
                 label.text = gateName;
                 label.gameObject.SetActive(true);
+                label.raycastTarget = false;
+                label.fontSize = gateName.Length > 3 ? 2.4f : 3f;
+                RectTransform plate = label.rectTransform;
+                plate.sizeDelta = new Vector2(1.35f, 0.34f);
+                plate.localPosition = new Vector3(0f, 0.72f, 0f);
+                FaceUser(plate);
                 foundTypeLabel = true;
+            }
+
+            TextMeshPro[] everyLabel = labels;
+            for (int i = 0; i < everyLabel.Length; i++)
+            {
+                TextMeshPro label = everyLabel[i];
+                if (label == null || IsTypeLabel(label.gameObject.name))
+                    continue;
+
+                label.raycastTarget = false;
+                if (label.gameObject.name.StartsWith("Label_", System.StringComparison.Ordinal))
+                    FaceUser(label.rectTransform);
             }
 
             if (!foundTypeLabel)
@@ -155,17 +177,65 @@ namespace GateVR.Presentation
             FaceUser(label.transform);
         }
 
+        public static bool TryParse(string gateName, out GateType type)
+        {
+            if (string.Equals(gateName, "AND", System.StringComparison.OrdinalIgnoreCase))
+            {
+                type = GateType.AND;
+                return true;
+            }
+
+            if (string.Equals(gateName, "OR", System.StringComparison.OrdinalIgnoreCase))
+            {
+                type = GateType.OR;
+                return true;
+            }
+
+            if (string.Equals(gateName, "NOT", System.StringComparison.OrdinalIgnoreCase))
+            {
+                type = GateType.NOT;
+                return true;
+            }
+
+            if (string.Equals(gateName, "NAND", System.StringComparison.OrdinalIgnoreCase))
+            {
+                type = GateType.NAND;
+                return true;
+            }
+
+            if (string.Equals(gateName, "NOR", System.StringComparison.OrdinalIgnoreCase))
+            {
+                type = GateType.NOR;
+                return true;
+            }
+
+            if (string.Equals(gateName, "XOR", System.StringComparison.OrdinalIgnoreCase))
+            {
+                type = GateType.XOR;
+                return true;
+            }
+
+            if (string.Equals(gateName, "XNOR", System.StringComparison.OrdinalIgnoreCase))
+            {
+                type = GateType.XNOR;
+                return true;
+            }
+
+            type = GateType.AND;
+            return false;
+        }
+
         private static void FaceUser(Transform plate)
         {
             Camera camera = Camera.main;
             Vector3 user = camera != null
                 ? camera.transform.position
                 : plate.position + new Vector3(0f, 0.85f, -1.1f);
-            Vector3 toUser = user - plate.position;
-            if (toUser.sqrMagnitude < 0.0001f)
+            Vector3 towardUser = user - plate.position;
+            if (towardUser.sqrMagnitude < 0.0001f)
                 return;
 
-            plate.rotation = Quaternion.LookRotation(toUser, Vector3.up);
+            plate.rotation = Quaternion.LookRotation(towardUser, Vector3.up);
         }
 
         private void TintHousing(Color color)
@@ -203,6 +273,14 @@ namespace GateVR.Presentation
                     return new Color(0.78f, 0.46f, 0.16f);
                 case GateType.NOT:
                     return new Color(0.52f, 0.28f, 0.72f);
+                case GateType.NAND:
+                    return new Color(0.12f, 0.48f, 0.5f);
+                case GateType.NOR:
+                    return new Color(0.62f, 0.24f, 0.24f);
+                case GateType.XOR:
+                    return new Color(0.2f, 0.5f, 0.32f);
+                case GateType.XNOR:
+                    return new Color(0.2f, 0.42f, 0.62f);
                 default:
                     return new Color(0.22f, 0.42f, 0.74f);
             }
@@ -216,6 +294,14 @@ namespace GateVR.Presentation
                     return new OrGate();
                 case GateType.NOT:
                     return new NotGate();
+                case GateType.NAND:
+                    return new NandGate();
+                case GateType.NOR:
+                    return new NorGate();
+                case GateType.XOR:
+                    return new XorGate();
+                case GateType.XNOR:
+                    return new XnorGate();
                 default:
                     return new AndGate();
             }

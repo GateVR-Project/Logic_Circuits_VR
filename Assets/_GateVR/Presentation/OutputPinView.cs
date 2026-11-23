@@ -32,6 +32,13 @@ namespace GateVR.Presentation
             }
         }
 
+        public void AssignGate(GateView gate)
+        {
+            gateOwner = gate;
+            if (gate != null)
+                switchOwner = null;
+        }
+
         public bool BelongsTo(GateView gate)
         {
             return gate != null && gateOwner == gate;
