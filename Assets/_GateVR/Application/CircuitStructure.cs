@@ -193,6 +193,12 @@ namespace GateVR.Application
                 });
         }
 
+        public static bool IsSwitch(string id)
+        {
+            return string.Equals(id, CircuitLinkSpec.SwitchA, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(id, CircuitLinkSpec.SwitchB, StringComparison.OrdinalIgnoreCase);
+        }
+
         private static bool IsSource(string id, HashSet<string> modules)
         {
             if (string.Equals(id, CircuitLinkSpec.SwitchA, StringComparison.OrdinalIgnoreCase))

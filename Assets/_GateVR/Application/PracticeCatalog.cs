@@ -3,8 +3,7 @@ using System.Collections.Generic;
 namespace GateVR.Application
 {
     /// <summary>
-    /// Catálogo de Fundamentos y los primeros ejercicios de Aplicación Real.
-    /// Diagnóstico queda para una iteración posterior.
+    /// Catálogo de Fundamentos, Aplicación Real y Diagnóstico.
     /// </summary>
     public static class PracticeCatalog
     {
@@ -86,7 +85,45 @@ namespace GateVR.Application
                     "Y = (A AND B) OR (NOT A)",
                     "OR",
                     (a, b) => (a && b) || !a,
-                    CircuitStructure.AndOrNotBranch())
+                    CircuitStructure.AndOrNotBranch()),
+                new PracticeExercise(
+                    id: "diag-gate-01",
+                    title: "Compuerta incorrecta",
+                    objective: "El LED debe encenderse solo cuando A y B estén encendidos. El chip instalado no cumple esa condición.",
+                    logicConditionText: "Y = A AND B",
+                    requiredGateType: "AND",
+                    expectedTruthTable: (a, b) => a && b,
+                    initialGateType: "OR",
+                    keepCompatibleWiring: true,
+                    moduleName: "Diagnóstico",
+                    preset: new StationPreset(true, false, true),
+                    tasks: PracticeTasks.ForWrongGate()),
+                new PracticeExercise(
+                    id: "diag-wire-01",
+                    title: "Conexión faltante",
+                    objective: "El LED debe encenderse si A o B están encendidos. Falta una conexión necesaria.",
+                    logicConditionText: "Y = A OR B",
+                    requiredGateType: "OR",
+                    expectedTruthTable: (a, b) => a || b,
+                    initialGateType: "OR",
+                    keepCompatibleWiring: true,
+                    moduleName: "Diagnóstico",
+                    preset: new StationPreset(true, false, true, "m1", "B"),
+                    tasks: PracticeTasks.ForGate(false)),
+                new PracticeExercise(
+                    id: "diag-net-01",
+                    title: "NAND averiada",
+                    objective: "Esta red debe apagar el LED solo cuando A y B estén encendidos. Un módulo no corresponde.",
+                    logicConditionText: "Y = !(A AND B)",
+                    requiredGateType: "NOT",
+                    expectedTruthTable: (a, b) => !(a && b),
+                    initialGateType: "AND",
+                    keepCompatibleWiring: false,
+                    moduleName: "Diagnóstico",
+                    structure: CircuitStructure.NandFromGates(),
+                    initialModuleTypes: new[] { "AND", "OR" },
+                    preset: new StationPreset(true, true, true),
+                    tasks: PracticeTasks.ForRepair())
             }.AsReadOnly();
         }
 

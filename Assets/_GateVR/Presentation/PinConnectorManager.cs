@@ -26,6 +26,15 @@ namespace GateVR.Presentation
 
         public event System.Action WiringChanged;
 
+        public bool TryWire(OutputPinView output, InputPinView input)
+        {
+            if (output == null || input == null)
+                return false;
+
+            Connect(output, input);
+            return FindWire(input) != null;
+        }
+
         public void SelectOutput(OutputPinView pin)
         {
             if (pin == null)

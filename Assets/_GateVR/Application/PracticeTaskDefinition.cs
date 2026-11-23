@@ -245,5 +245,52 @@ namespace GateVR.Application
                     "wire")
             }.AsReadOnly();
         }
+
+        public static IReadOnlyList<PracticeTaskDefinition> ForRepair()
+        {
+            return new List<PracticeTaskDefinition>
+            {
+                new PracticeTaskDefinition(
+                    "wire",
+                    "Corrige el módulo",
+                    "La red no cumple la condición pedida.",
+                    1,
+                    TaskConditionKind.WireCircuit),
+                new PracticeTaskDefinition(
+                    "try",
+                    "Prueba los interruptores A y B",
+                    "Cambia A y B y observa el LED.",
+                    2,
+                    TaskConditionKind.TrySwitches,
+                    "wire"),
+                new PracticeTaskDefinition(
+                    "check",
+                    "Comprueba el circuito",
+                    "Pulsa Comprobar cuando la red quede corregida.",
+                    3,
+                    TaskConditionKind.CheckResult,
+                    "wire")
+            }.AsReadOnly();
+        }
+
+        public static IReadOnlyList<PracticeTaskDefinition> ForWrongGate()
+        {
+            return new List<PracticeTaskDefinition>
+            {
+                new PracticeTaskDefinition(
+                    "gate",
+                    "Corrige la compuerta",
+                    "El chip instalado no produce la condición pedida.",
+                    1,
+                    TaskConditionKind.ConfirmGate),
+                new PracticeTaskDefinition(
+                    "check",
+                    "Comprueba el circuito",
+                    "Pulsa Comprobar cuando la tabla coincida.",
+                    2,
+                    TaskConditionKind.CheckResult,
+                    "gate")
+            }.AsReadOnly();
+        }
     }
 }

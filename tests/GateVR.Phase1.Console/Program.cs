@@ -29,6 +29,8 @@ internal static class Phase1LogicTests
         TestSevenGateTables();
         TestGateSubstitutionKeepsCompatibleInputs();
         TestCompoundNetworks();
+        TestDiagnosis();
+        TestStationLayout();
 
         if (_failures == 0)
         {
@@ -215,7 +217,7 @@ internal static class Phase1LogicTests
     {
         Section("Validación estructural y tabla de verdad");
         PracticeSessionService session = new PracticeSessionService();
-        Check(session.Exercises.Count == 10, "hay siete fundamentos y tres prácticas compuestas");
+        Check(session.Exercises.Count == 13, "hay siete fundamentos, tres prácticas compuestas y tres diagnósticos");
         Check(session.CurrentExercise.Id == "and-01", "el ejercicio inicial es AND");
 
         SwitchNode a = new SwitchNode();
@@ -250,7 +252,7 @@ internal static class Phase1LogicTests
         partial.TryConnectInputA(a);
         partialLed.TryConnect(partial);
         var missing = session.ValidateCurrentCircuit(a, b, partial, partialLed);
-        Check(!missing.IsSuccess && missing.FeedbackMessage.Contains("1 de 2"), missing.FeedbackMessage);
+        Check(!missing.IsSuccess && missing.FeedbackMessage.Contains("entrada B"), missing.FeedbackMessage);
 
         GateNode sameInput = new GateNode(new AndGate());
         LedNode sameLed = new LedNode();
@@ -880,6 +882,14 @@ internal static class Phase1LogicTests
         }
 
         Check(fundamentals == 7 && applied == 3, "el catálogo separa Fundamentos y Aplicación Real");
+        int diagnosis = 0;
+        for (int i = 0; i < session.Exercises.Count; i++)
+        {
+            if (session.Exercises[i].ModuleName == "Diagnóstico")
+                diagnosis++;
+        }
+
+        Check(diagnosis == 3, "Diagnóstico tiene tres prácticas");
         session.SelectExercise("app-nand-01");
         Check(session.CurrentExercise.Structure != null && session.CurrentExercise.Structure.Modules.Count == 2, "la NAND compuesta exige dos módulos");
         Check(!session.CurrentExercise.KeepCompatibleWiring, "la práctica compuesta empieza sin cables heredados");
@@ -1002,6 +1012,206 @@ internal static class Phase1LogicTests
         session.ResetCircuit(branchA, branchB, gates, branchLed);
         Check(session.CurrentExercise.Id == "app-branch-01", "Reiniciar conserva la práctica compuesta");
         Check(!branchA.IsOn && !branchB.IsOn && branchLed.Input == null && branchAnd.InputA == null, "Reiniciar suelta la red");
+    }
+
+    private static void TestStationLayout()
+    {
+        Section("Distribución dentro de la placa");
+        // Placa de la escena: cubo 1.55 x 0.95 m, centrado en PracticeLab.
+        // Mesa: cubo 2 x 1 m. Los spans salen de los pines medidos en la escena.
+        StationLayout.Area board = StationLayout.Area.FromCenter(0f, 0f, 0.775f, 0.475f);
+        StationLayout.Area table = StationLayout.Area.FromCenter(0f, 0f, 1f, 0.5f);
+        StationLayout.Span gate = new StationLayout.Span { Left = 1.016f, Right = 1.026f, Near = 0.45f, Far = 0.45f };
+        StationLayout.Span led = new StationLayout.Span { Left = 0.105f, Right = 0.061f, Near = 0.04f, Far = 0.04f };
+        StationLayout.Span sw = new StationLayout.Span { Left = 0.09f, Right = 0.216f, Near = 0.08f, Far = 0.08f };
+
+        CheckContained("AND", ArrangeLesson(board, table, gate, led, sw, null, 1));
+        CheckContained("NOT", ArrangeLesson(board, table, gate, led, sw, null, 1));
+        StationLayout.Plan and = ArrangeLesson(board, table, gate, led, sw, null, 1);
+        Check(Math.Abs(and.LedX - 0.45f) < 0.001f && Math.Abs(and.GateX[0]) < 0.001f, "una compuerta conserva el LED y la compuerta de la escena");
+        Check(Math.Abs(and.Board.MaxX - 0.775f) < 0.001f, "una compuerta no ensancha la placa");
+
+        CheckContained("NAND con AND y NOT", ArrangeLesson(board, table, gate, led, sw, CircuitStructure.NandFromGates(), 2));
+        CheckContained("NOR con OR y NOT", ArrangeLesson(board, table, gate, led, sw, CircuitStructure.NorFromGates(), 2));
+        StationLayout.Plan branch = ArrangeLesson(board, table, gate, led, sw, CircuitStructure.AndOrNotBranch(), 3);
+        CheckContained("tres compuertas en paralelo", branch);
+        Check(Math.Abs(branch.GateZ[0] - branch.GateZ[1]) > 0.12f, "las dos ramas no comparten el mismo carril");
+        Check(Math.Abs(branch.GateX[0] - branch.GateX[2]) > 0.05f, "la compuerta que reúne las ramas queda en otra columna");
+
+        StationLayout.Plan diagnosis = ArrangeLesson(board, table, gate, led, sw, null, 1);
+        CheckContained("diagnóstico de una compuerta", diagnosis);
+        StationLayout.Plan diagnosisNet = ArrangeLesson(board, table, gate, led, sw, CircuitStructure.NandFromGates(), 2);
+        CheckContained("diagnóstico de dos módulos", diagnosisNet);
+        StationLayout.Plan again = ArrangeLesson(board, table, gate, led, sw, CircuitStructure.NandFromGates(), 2);
+        Check(Math.Abs(again.LedX - diagnosisNet.LedX) < 0.0001f && Math.Abs(again.GateX[0] - diagnosisNet.GateX[0]) < 0.0001f, "Reiniciar repite la misma distribución");
+
+        StationLayout.Plan fundamentals = ArrangeLesson(board, table, gate, led, sw, null, 1);
+        Check(Math.Abs(fundamentals.LedX - 0.45f) < 0.001f, "volver a Fundamentos devuelve el LED a su sitio");
+        Check(diagnosisNet.LedX + led.Right <= diagnosisNet.Board.MaxX - 0.04f, "el LED de dos módulos no sale de la placa");
+        Check(diagnosisNet.Board.MaxX <= table.MaxX - 0.01f, "la placa ensanchada sigue sobre la mesa");
+    }
+
+    private static StationLayout.Plan ArrangeLesson(
+        StationLayout.Area board,
+        StationLayout.Area table,
+        StationLayout.Span gate,
+        StationLayout.Span led,
+        StationLayout.Span sw,
+        CircuitStructure structure,
+        int count)
+    {
+        int[] columns = new int[count];
+        float[] lanes = new float[count];
+        StationLayout.AssignColumns(structure, count, columns, lanes);
+        return StationLayout.Arrange(
+            board,
+            table,
+            gate,
+            led,
+            sw,
+            -0.45f,
+            0.18f,
+            -0.45f,
+            -0.18f,
+            0f,
+            0f,
+            0.45f,
+            0f,
+            0.25f,
+            count,
+            columns,
+            lanes,
+            0.2f,
+            0.14f,
+            0.08f,
+            0.055f,
+            0.26f,
+            0.045f);
+    }
+
+    private static void CheckContained(string name, StationLayout.Plan plan)
+    {
+        Check(plan.Fits, name + " cabe en la placa");
+        if (!plan.Fits)
+            return;
+
+        StationLayout.Span gate = new StationLayout.Span { Left = 1.016f, Right = 1.026f, Near = 0.45f, Far = 0.45f };
+        StationLayout.Span led = new StationLayout.Span { Left = 0.105f, Right = 0.061f, Near = 0.04f, Far = 0.04f };
+        StationLayout.Span sw = new StationLayout.Span { Left = 0.09f, Right = 0.216f, Near = 0.08f, Far = 0.08f };
+        const float margin = 0.045f;
+        Check(StationLayout.Inside(plan.Board, plan.SwitchAX, plan.SwitchAZ, sw, 1f, margin), name + ": interruptor A dentro");
+        Check(StationLayout.Inside(plan.Board, plan.SwitchBX, plan.SwitchBZ, sw, 1f, margin), name + ": interruptor B dentro");
+        Check(StationLayout.Inside(plan.Board, plan.LedX, plan.LedZ, led, 1f, margin), name + ": LED dentro");
+        for (int i = 0; i < plan.GateX.Length; i++)
+            Check(StationLayout.Inside(plan.Board, plan.GateX[i], plan.GateZ[i], gate, plan.GateScale, margin), name + ": módulo " + (i + 1) + " dentro");
+
+        if (plan.GateX.Length > 1)
+        {
+            for (int i = 0; i < plan.GateX.Length; i++)
+            {
+                for (int other = i + 1; other < plan.GateX.Length; other++)
+                {
+                    Check(
+                        StationLayout.Separated(plan.GateX[i], plan.GateZ[i], gate, plan.GateScale, plan.GateX[other], plan.GateZ[other], gate, plan.GateScale, 0.05f),
+                        name + ": los módulos " + (i + 1) + " y " + (other + 1) + " no se solapan");
+                }
+            }
+        }
+    }
+
+    private static void TestDiagnosis()
+    {
+        Section("Diagnóstico: fallo inicial, corrección y submódulos");
+        PracticeSessionService session = new PracticeSessionService();
+        session.SelectExercise("app-branch-01");
+        PracticeExercise entered = session.AdvanceExercise();
+        Check(entered.Id == "diag-gate-01" && entered.ModuleName == "Diagnóstico", "Siguiente entra a Diagnóstico al terminar Aplicación Real");
+        Check(session.IndexInModule(entered) == 1 && session.CountInModule("Diagnóstico") == 3, "Diagnóstico muestra 1 de 3");
+
+        PracticeExercise wrongGate = session.CurrentExercise;
+        Check(wrongGate.RequiredGateType == "AND" && wrongGate.InitialGateType == "OR", "Diagnóstico 01 exige AND y abre con OR");
+        Check(wrongGate.Preset != null && wrongGate.Preset.WireSwitches && wrongGate.Preset.WireLed && !wrongGate.Preset.Omits("m1", "A"), "Diagnóstico 01 precarga los cables");
+        Check(wrongGate.Tasks.Count == 2, "Diagnóstico 01 tiene dos tareas");
+
+        SwitchNode a = new SwitchNode();
+        SwitchNode b = new SwitchNode();
+        a.SetState(true);
+        GateNode or = new GateNode(new OrGate());
+        LedNode led = new LedNode();
+        or.TryConnectInputA(a);
+        or.TryConnectInputB(b);
+        led.TryConnect(or);
+        var faulty = session.ValidateCurrentCircuit(a, b, or, led);
+        Check(!faulty.IsSuccess && faulty.FeedbackMessage.Contains("requiere una compuerta AND"), faulty.FeedbackMessage);
+        Check(session.CurrentExercise.Id == "diag-gate-01", "el fallo no cambia la práctica");
+
+        GateNode and = new GateNode(new AndGate());
+        LedNode fixedLed = new LedNode();
+        and.TryConnectInputA(a);
+        and.TryConnectInputB(b);
+        fixedLed.TryConnect(and);
+        var corrected = session.ValidateCurrentCircuit(a, b, and, fixedLed);
+        Check(corrected.IsSuccess, corrected.FeedbackMessage);
+        Check(a.IsOn, "comprobar restaura el interruptor A");
+
+        LessonProgress progress = new LessonProgress(wrongGate);
+        progress.NoteManualGate("OR");
+        Check(Find(progress, "gate").State == LessonTaskState.Pending, "la OR inicial no cuenta como corrección");
+        progress.NoteValidation(true);
+        Check(Find(progress, "check").State == LessonTaskState.Pending, "comprobar no cierra si la compuerta sigue mal");
+        progress.NoteManualGate("AND");
+        progress.NoteValidation(true);
+        Check(progress.IsPracticeComplete, "cambiar a AND y comprobar cierra Diagnóstico 01");
+        progress.NoteCircuitReset();
+        Check(Find(progress, "gate").State == LessonTaskState.Pending && !progress.IsPracticeComplete, "Reiniciar deja otra vez pendiente la corrección");
+        Check(session.CurrentExercise.InitialGateType == "OR" && session.CurrentExercise.Preset.WireLed, "Reiniciar conserva el fallo inicial de la práctica");
+
+        session.SelectExercise("diag-wire-01");
+        PracticeExercise missing = session.CurrentExercise;
+        Check(missing.InitialGateType == "OR" && missing.Preset.Omits("m1", "B"), "Diagnóstico 02 abre en OR sin la entrada B");
+        GateNode partial = new GateNode(new OrGate());
+        LedNode partialLed = new LedNode();
+        partial.TryConnectInputA(a);
+        partialLed.TryConnect(partial);
+        var open = session.ValidateCurrentCircuit(a, b, partial, partialLed);
+        Check(!open.IsSuccess && open.FeedbackMessage.Contains("entrada B"), open.FeedbackMessage);
+        partial.TryConnectInputB(b);
+        var closed = session.ValidateCurrentCircuit(a, b, partial, partialLed);
+        Check(closed.IsSuccess, closed.FeedbackMessage);
+
+        session.SelectExercise("diag-net-01");
+        PracticeExercise broken = session.CurrentExercise;
+        Check(broken.InitialModuleTypes != null && broken.InitialModuleTypes[1] == "OR", "Diagnóstico 03 abre el segundo módulo en OR");
+        Check(broken.Structure.Modules[1].GateType == "NOT", "la práctica sigue exigiendo NOT");
+        GateNode sourceAnd = new GateNode(new AndGate());
+        GateNode wrongOr = new GateNode(new OrGate());
+        LedNode netLed = new LedNode();
+        sourceAnd.TryConnectInputA(a);
+        sourceAnd.TryConnectInputB(b);
+        wrongOr.TryConnectInputA(sourceAnd);
+        netLed.TryConnect(wrongOr);
+        var badNet = session.ValidateCurrentCircuit(
+            a,
+            b,
+            new List<StationGate> { new StationGate("m1", sourceAnd), new StationGate("m2", wrongOr) },
+            netLed);
+        Check(!badNet.IsSuccess && badNet.FeedbackMessage.Contains("debe ser NOT"), badNet.FeedbackMessage);
+
+        GateNode fixedNot = new GateNode(new NotGate());
+        wrongOr.DisconnectAll();
+        fixedNot.TryConnectInputA(sourceAnd);
+        netLed.ReplaceInput(fixedNot);
+        var goodNet = session.ValidateCurrentCircuit(
+            a,
+            b,
+            new List<StationGate> { new StationGate("m1", sourceAnd), new StationGate("m2", fixedNot) },
+            netLed);
+        Check(goodNet.IsSuccess, goodNet.FeedbackMessage);
+        Check(SubscriberCount(sourceAnd) == 1 && SubscriberCount(fixedNot) == 1, "la corrección no duplica suscriptores");
+
+        session.SelectExercise("diag-net-01");
+        PracticeExercise wrapped = session.AdvanceExercise();
+        Check(wrapped.Id == "and-01" && wrapped.ModuleName == "Fundamentos", "al terminar Diagnóstico, Siguiente vuelve a Fundamentos");
     }
 
     private static string BitText(bool value)

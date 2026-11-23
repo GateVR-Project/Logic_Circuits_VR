@@ -36,6 +36,11 @@ namespace GateVR.Presentation
         [SerializeField] private Color successColor = new Color(0.5f, 0.95f, 0.55f);
         [SerializeField] private Color errorColor = new Color(1f, 0.45f, 0.4f);
         [SerializeField] private bool developmentFreeNavigation;
+        [SerializeField] private float moduleSpacing = 0.08f;
+        [SerializeField] private float pinClearance = 0.055f;
+        [SerializeField] private float moduleRowSpacing = 0.26f;
+        [SerializeField] private float boardMargin = 0.045f;
+        [SerializeField] private float labelOffset = 0.9f;
 
         private PracticeSessionService _session;
         private LessonProgress _progress;
@@ -43,7 +48,20 @@ namespace GateVR.Presentation
         private readonly List<GateView> _modules = new List<GateView>();
         private GateView _focused;
         private Vector3 _gateHome;
-        private bool _gateHomeReady;
+        private Vector3 _switchAHome;
+        private Vector3 _switchBHome;
+        private Vector3 _ledHome;
+        private bool _homesReady;
+        private bool _configuring;
+        private bool _metricsReady;
+        private Transform _placa;
+        private Vector3 _placaHomeScale = Vector3.one;
+        private float _gateHomeScale = 0.25f;
+        private StationLayout.Area _boardHome;
+        private StationLayout.Area _tableArea;
+        private StationLayout.Span _gateUnit = new StationLayout.Span { Left = 1.02f, Right = 1.03f, Near = 0.45f, Far = 0.45f };
+        private StationLayout.Span _ledSpan = new StationLayout.Span { Left = 0.11f, Right = 0.07f, Near = 0.04f, Far = 0.04f };
+        private StationLayout.Span _switchSpan = new StationLayout.Span { Left = 0.09f, Right = 0.22f, Near = 0.08f, Far = 0.08f };
 
         private void Awake()
         {
@@ -52,10 +70,17 @@ namespace GateVR.Presentation
             if (activeGate != null)
             {
                 _gateHome = activeGate.transform.localPosition;
-                _gateHomeReady = true;
                 _modules.Add(activeGate);
                 _focused = activeGate;
             }
+
+            if (switchA != null)
+                _switchAHome = switchA.transform.localPosition;
+            if (switchB != null)
+                _switchBHome = switchB.transform.localPosition;
+            if (led != null)
+                _ledHome = led.transform.localPosition;
+            _homesReady = activeGate != null;
 
             EnsureGateButtons();
             RefreshNextButton();
@@ -85,6 +110,9 @@ namespace GateVR.Presentation
             ListenGate(GateType.NOR, SelectNor);
             ListenGate(GateType.XOR, SelectXor);
             ListenGate(GateType.XNOR, SelectXnor);
+            ListenNav("Fundamentos", OpenFundamentos);
+            ListenNav("Aplicación Real", OpenAplicacion);
+            ListenNav("Diagnóstico", OpenDiagnostico);
 
             if (switchA != null)
                 switchA.Interacted += OnSwitchA;
@@ -120,6 +148,9 @@ namespace GateVR.Presentation
             SilenceGate(GateType.NOR, SelectNor);
             SilenceGate(GateType.XOR, SelectXor);
             SilenceGate(GateType.XNOR, SelectXnor);
+            SilenceNav("Fundamentos", OpenFundamentos);
+            SilenceNav("Aplicación Real", OpenAplicacion);
+            SilenceNav("Diagnóstico", OpenDiagnostico);
 
             if (switchA != null)
                 switchA.Interacted -= OnSwitchA;
@@ -163,7 +194,12 @@ namespace GateVR.Presentation
 
             string message = result.FeedbackMessage;
             if (result.IsSuccess && _progress.IsPracticeComplete)
-                message += " Puedes avanzar con Siguiente.";
+            {
+                PracticeExercise upcoming = _session.PeekNextExercise();
+                message += upcoming != null && upcoming.ModuleName != _session.CurrentExercise.ModuleName
+                    ? " Siguiente abre " + upcoming.ModuleName + "."
+                    : " Puedes avanzar con Siguiente.";
+            }
             else if (result.IsSuccess)
                 message += " Completa las tareas pendientes para avanzar.";
 
@@ -212,8 +248,23 @@ namespace GateVR.Presentation
 
             _focused = _modules[index];
             HighlightSelectedGate();
-            if (_tasks != null)
-                _tasks.SetStationModules(ActiveModuleCount(), index, FocusModule);
+            RefreshModuleButtons();
+            RefreshFocusVisuals();
+        }
+
+        public void OpenFundamentos()
+        {
+            OpenModule("Fundamentos");
+        }
+
+        public void OpenAplicacion()
+        {
+            OpenModule("Aplicación Real");
+        }
+
+        public void OpenDiagnostico()
+        {
+            OpenModule("Diagnóstico");
         }
 
         public void SelectAnd()
@@ -233,10 +284,9 @@ namespace GateVR.Presentation
 
         public void ResetPractice()
         {
-            if (!ClearCircuit())
-                return;
-
+            ConfigureStation(_session.CurrentExercise, true);
             _progress.NoteCircuitReset();
+            RefreshWiring();
             ShowPracticeTexts();
             RefreshProgressUi();
             SetFeedback(
@@ -247,50 +297,78 @@ namespace GateVR.Presentation
         /// <summary>
         /// Prepara los módulos de la práctica y su compuerta inicial. No llama a Comprobar.
         /// </summary>
-        private void ConfigureStation(PracticeExercise exercise)
+        private void ConfigureStation(PracticeExercise exercise, bool restoreInitial = false)
         {
-            int needed = exercise.Structure == null ? 1 : exercise.Structure.Modules.Count;
-            EnsureModules(needed);
-            _focused = _modules.Count > 0 ? _modules[0] : activeGate;
-
-            if (exercise.Structure == null)
+            _configuring = true;
+            try
             {
+                int needed = exercise.Structure == null ? 1 : exercise.Structure.Modules.Count;
+                EnsureModules(needed);
+                _focused = _modules.Count > 0 ? _modules[0] : activeGate;
+                ApplyInitialTypes(exercise);
+                LayoutStation(exercise);
+
+                bool rebuildWires = restoreInitial || exercise.Preset != null || !exercise.KeepCompatibleWiring;
+                if (rebuildWires)
+                    ClearCircuit();
+
+                if (exercise.Preset != null)
+                    ApplyPreset(exercise);
+
+                _focused = _modules.Count > 0 ? _modules[0] : activeGate;
+                RefreshFocusVisuals();
+                RefreshModuleButtons();
+            }
+            finally
+            {
+                _configuring = false;
+            }
+
+            ShowCurrentExercise();
+            RefreshWiring();
+        }
+
+        private void ApplyInitialTypes(PracticeExercise exercise)
+        {
+            int count = ActiveModuleCount();
+            for (int i = 0; i < count && i < _modules.Count; i++)
+            {
+                string typeName = exercise.InitialGateType;
+                if (exercise.InitialModuleTypes != null && i < exercise.InitialModuleTypes.Count)
+                    typeName = exercise.InitialModuleTypes[i];
+                else if (exercise.Structure != null && i < exercise.Structure.Modules.Count)
+                    typeName = exercise.Structure.Modules[i].GateType;
+
                 GateType station;
-                if (!GateView.TryParse(exercise.InitialGateType, out station))
+                if (!GateView.TryParse(typeName, out station))
                 {
-                    ShowCurrentExercise();
                     SetFeedback(
-                        "La práctica pide una estación " + exercise.InitialGateType
+                        "La práctica pide una estación " + typeName
                         + " y esa compuerta aún no está en el laboratorio.",
                         errorColor);
-                    return;
+                    continue;
                 }
 
+                _focused = _modules[i];
                 ApplyGate(station, false);
             }
-            else
+        }
+
+        private void OpenModule(string moduleName)
+        {
+            for (int i = 0; i < _session.Exercises.Count; i++)
             {
-                for (int i = 0; i < exercise.Structure.Modules.Count && i < _modules.Count; i++)
-                {
-                    GateType station;
-                    if (!GateView.TryParse(exercise.Structure.Modules[i].GateType, out station))
-                        continue;
+                PracticeExercise exercise = _session.Exercises[i];
+                if (!string.Equals(exercise.ModuleName, moduleName, StringComparison.Ordinal))
+                    continue;
 
-                    _focused = _modules[i];
-                    ApplyGate(station, false);
-                }
-
-                _focused = _modules[0];
+                _session.SelectExercise(exercise.Id);
+                _progress.Load(exercise);
+                ConfigureStation(exercise);
+                RefreshProgressUi();
+                SetFeedback("Submódulo " + moduleName + ". " + exercise.Title + ".", hintColor);
+                return;
             }
-
-            if (!exercise.KeepCompatibleWiring && ClearCircuit())
-                ShowCurrentExercise();
-
-            HighlightSelectedGate();
-            if (_tasks != null)
-                _tasks.SetStationModules(ActiveModuleCount(), 0, FocusModule);
-
-            RefreshWiring();
         }
 
         /// <summary>
@@ -334,9 +412,14 @@ namespace GateVR.Presentation
             if (studentChoice && target.Node != null)
                 _progress.NoteManualGate(target.Node.GateName);
 
-            RefreshWiring();
-            ShowCurrentExercise();
-            RefreshProgressUi();
+            if (!_configuring)
+            {
+                RefreshWiring();
+                ShowCurrentExercise();
+                RefreshProgressUi();
+                RefreshModuleButtons();
+                RefreshFocusVisuals();
+            }
         }
 
         private bool ClearCircuit()
@@ -390,6 +473,9 @@ namespace GateVR.Presentation
 
         private void OnWiringChanged()
         {
+            if (_configuring)
+                return;
+
             RefreshWiring();
             RefreshProgressUi();
         }
@@ -434,8 +520,11 @@ namespace GateVR.Presentation
 
             if (_tasks != null)
             {
-                _tasks.SetModule(exercise.ModuleName);
+                int index = _session.IndexInModule(exercise);
+                int total = _session.CountInModule(exercise.ModuleName);
+                _tasks.SetModule(exercise.ModuleName + "  ·  Práctica " + index + " de " + total);
                 _tasks.SetTruthTable(FormatTruthTable(exercise));
+                HighlightNav(exercise.ModuleName);
             }
 
             if (exercise.UsesSingleInput)
@@ -598,27 +687,412 @@ namespace GateVR.Presentation
                 }
 
                 module.gameObject.SetActive(true);
-                PlaceModule(module, i, count);
             }
         }
 
-        private void PlaceModule(GateView module, int index, int count)
+        private void LayoutStation(PracticeExercise exercise)
         {
-            Transform body = module.transform;
-            Vector3 home = _gateHomeReady ? _gateHome : body.localPosition;
-            if (count <= 1)
+            int count = ActiveModuleCount();
+            EnsureLayoutMetrics();
+            int[] columns = new int[count];
+            float[] lanes = new float[count];
+            StationLayout.AssignColumns(exercise.Structure, count, columns, lanes);
+
+            // Un paso fijo de 0.46 m, medido desde el interruptor, dejaba el LED
+            // pasado el borde derecho de la placa (x > 0.775) y junto al panel.
+            // Aquí la fila se centra en el rectángulo medido de Placa.
+            float preferredGap = Mathf.Clamp(moduleSpacing, 0.05f, 0.12f);
+            float minimumGap = Mathf.Clamp(pinClearance, 0.04f, preferredGap);
+            float laneSpacing = Mathf.Clamp(moduleRowSpacing, 0.16f, 0.34f);
+            float edge = Mathf.Clamp(boardMargin, 0.03f, 0.08f);
+            StationLayout.Plan plan = StationLayout.Arrange(
+                _boardHome,
+                _tableArea,
+                _gateUnit,
+                _ledSpan,
+                _switchSpan,
+                _switchAHome.x,
+                _switchAHome.z,
+                _switchBHome.x,
+                _switchBHome.z,
+                _gateHome.x,
+                _gateHome.z,
+                _ledHome.x,
+                _ledHome.z,
+                _gateHomeScale,
+                count,
+                columns,
+                lanes,
+                0.2f,
+                0.14f,
+                preferredGap,
+                minimumGap,
+                laneSpacing,
+                edge);
+
+            ApplyBoardSize(plan.Board);
+            if (switchA != null)
+                switchA.transform.localPosition = new Vector3(plan.SwitchAX, _switchAHome.y, plan.SwitchAZ);
+            if (switchB != null)
+                switchB.transform.localPosition = new Vector3(plan.SwitchBX, _switchBHome.y, plan.SwitchBZ);
+            if (led != null)
+                led.transform.localPosition = new Vector3(plan.LedX, _ledHome.y, plan.LedZ);
+
+            for (int i = 0; i < count && i < _modules.Count; i++)
             {
-                body.localPosition = home;
-                body.localScale = new Vector3(0.25f, 0.25f, 0.25f);
+                GateView module = _modules[i];
+                if (module == null)
+                    continue;
+
+                float x = i < plan.GateX.Length ? plan.GateX[i] : _gateHome.x;
+                float z = i < plan.GateZ.Length ? plan.GateZ[i] : _gateHome.z;
+                module.transform.localScale = new Vector3(plan.GateScale, plan.GateScale, plan.GateScale);
+                module.transform.localPosition = new Vector3(x, _gateHome.y, z);
+                module.SetLabelOffset(labelOffset);
+            }
+        }
+
+        private void EnsureLayoutMetrics()
+        {
+            if (_metricsReady)
+                return;
+
+            Transform lab = transform.parent != null ? transform.parent : transform;
+            _placa = FindNamed(lab, "Placa");
+            if (_placa != null)
+                _placaHomeScale = _placa.localScale;
+
+            _boardHome = MeasureArea(lab, _placa, new StationLayout.Area
+            {
+                MinX = -0.775f,
+                MaxX = 0.775f,
+                MinZ = -0.475f,
+                MaxZ = 0.475f
+            });
+            Transform mesa = FindNamed(null, "Mesa");
+            _tableArea = MeasureArea(lab, mesa, new StationLayout.Area
+            {
+                MinX = -1f,
+                MaxX = 1f,
+                MinZ = -0.5f,
+                MaxZ = 0.5f
+            });
+
+            if (activeGate != null)
+            {
+                _gateHomeScale = Mathf.Abs(activeGate.transform.localScale.x);
+                if (_gateHomeScale < 0.01f)
+                    _gateHomeScale = 0.25f;
+                _gateUnit = ScaleSpan(MeasureSpan(activeGate.transform, lab, _gateUnit), 1f / _gateHomeScale);
+            }
+
+            if (led != null)
+                _ledSpan = MeasureSpan(led.transform, lab, _ledSpan);
+            if (switchA != null || switchB != null)
+            {
+                StationLayout.Span first = switchA != null ? MeasureSpan(switchA.transform, lab, _switchSpan) : _switchSpan;
+                StationLayout.Span second = switchB != null ? MeasureSpan(switchB.transform, lab, _switchSpan) : first;
+                _switchSpan = StationLayout.Span.Union(first, second);
+            }
+
+            _metricsReady = true;
+        }
+
+        private void ApplyBoardSize(StationLayout.Area used)
+        {
+            if (_placa == null)
+                return;
+
+            float homeWidth = _boardHome.MaxX - _boardHome.MinX;
+            float homeDepth = _boardHome.MaxZ - _boardHome.MinZ;
+            float usedWidth = used.MaxX - used.MinX;
+            float usedDepth = used.MaxZ - used.MinZ;
+            Vector3 scale = _placaHomeScale;
+            if (homeWidth > 0.01f)
+                scale.x = _placaHomeScale.x * (usedWidth / homeWidth);
+            if (homeDepth > 0.01f)
+                scale.z = _placaHomeScale.z * (usedDepth / homeDepth);
+            _placa.localScale = scale;
+        }
+
+        private static StationLayout.Area MeasureArea(Transform space, Transform source, StationLayout.Area fallback)
+        {
+            if (source == null)
+                return fallback;
+
+            Renderer renderer = source.GetComponent<Renderer>();
+            if (renderer == null)
+                renderer = source.GetComponentInChildren<Renderer>();
+            if (renderer == null || space == null)
+                return fallback;
+
+            Bounds bounds = renderer.bounds;
+            Vector3 min = space.InverseTransformPoint(bounds.min);
+            Vector3 max = space.InverseTransformPoint(bounds.max);
+            return new StationLayout.Area
+            {
+                MinX = Mathf.Min(min.x, max.x),
+                MaxX = Mathf.Max(min.x, max.x),
+                MinZ = Mathf.Min(min.z, max.z),
+                MaxZ = Mathf.Max(min.z, max.z)
+            };
+        }
+
+        private static StationLayout.Span MeasureSpan(Transform piece, Transform space, StationLayout.Span fallback)
+        {
+            if (piece == null || space == null)
+                return fallback;
+
+            Vector3 origin = space.InverseTransformPoint(piece.position);
+            bool any = false;
+            float minX = 0f;
+            float maxX = 0f;
+            float minZ = 0f;
+            float maxZ = 0f;
+            Renderer[] renderers = piece.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                Renderer renderer = renderers[i];
+                if (renderer == null || !renderer.enabled)
+                    continue;
+                IncludeBounds(space, renderer.bounds, ref any, ref minX, ref maxX, ref minZ, ref maxZ);
+            }
+
+            Collider[] colliders = piece.GetComponentsInChildren<Collider>(true);
+            for (int i = 0; i < colliders.Length; i++)
+            {
+                Collider collider = colliders[i];
+                if (collider == null || !collider.enabled)
+                    continue;
+                IncludeBounds(space, collider.bounds, ref any, ref minX, ref maxX, ref minZ, ref maxZ);
+            }
+
+            if (!any)
+                return fallback;
+
+            return new StationLayout.Span
+            {
+                Left = Mathf.Max(0.01f, origin.x - minX),
+                Right = Mathf.Max(0.01f, maxX - origin.x),
+                Near = Mathf.Max(0.01f, origin.z - minZ),
+                Far = Mathf.Max(0.01f, maxZ - origin.z)
+            };
+        }
+
+        private static void IncludeBounds(
+            Transform space,
+            Bounds bounds,
+            ref bool any,
+            ref float minX,
+            ref float maxX,
+            ref float minZ,
+            ref float maxZ)
+        {
+            Vector3 center = bounds.center;
+            Vector3 extent = bounds.extents;
+            for (int corner = 0; corner < 8; corner++)
+            {
+                Vector3 world = center + new Vector3(
+                    (corner & 1) == 0 ? -extent.x : extent.x,
+                    (corner & 2) == 0 ? -extent.y : extent.y,
+                    (corner & 4) == 0 ? -extent.z : extent.z);
+                Vector3 local = space.InverseTransformPoint(world);
+                if (!any)
+                {
+                    minX = maxX = local.x;
+                    minZ = maxZ = local.z;
+                    any = true;
+                    continue;
+                }
+
+                if (local.x < minX)
+                    minX = local.x;
+                if (local.x > maxX)
+                    maxX = local.x;
+                if (local.z < minZ)
+                    minZ = local.z;
+                if (local.z > maxZ)
+                    maxZ = local.z;
+            }
+        }
+
+        private static StationLayout.Span ScaleSpan(StationLayout.Span span, float factor)
+        {
+            if (factor < 0f)
+                factor = 0f;
+            return new StationLayout.Span
+            {
+                Left = span.Left * factor,
+                Right = span.Right * factor,
+                Near = span.Near * factor,
+                Far = span.Far * factor
+            };
+        }
+
+        private static Transform FindNamed(Transform root, string name)
+        {
+            if (root != null)
+            {
+                if (root.name == name)
+                    return root;
+                Transform[] children = root.GetComponentsInChildren<Transform>(true);
+                for (int i = 0; i < children.Length; i++)
+                {
+                    if (children[i] != null && children[i].name == name)
+                        return children[i];
+                }
+            }
+
+            GameObject found = GameObject.Find(name);
+            return found != null ? found.transform : null;
+        }
+
+        private void ApplyPreset(PracticeExercise exercise)
+        {
+            StationPreset preset = exercise.Preset;
+            if (preset == null || connector == null)
+                return;
+
+            if (exercise.Structure == null)
+            {
+                GateView gate = _modules.Count > 0 ? _modules[0] : activeGate;
+                if (gate == null)
+                    return;
+
+                if (preset.WireSwitches && !preset.Omits("m1", "A"))
+                    connector.TryWire(OutputOf(switchA), InputOf(gate, false));
+                if (preset.WireSwitches && !preset.Omits("m1", "B") && gate.Node != null && gate.Node.RequiredInputCount > 1)
+                    connector.TryWire(OutputOf(switchB), InputOf(gate, true));
+                if (preset.WireLed)
+                    connector.TryWire(OutputOf(gate), InputOfLed());
                 return;
             }
 
-            float scale = count >= 4 ? 0.16f : count == 3 ? 0.18f : 0.2f;
-            float step = count >= 4 ? 0.2f : count == 3 ? 0.24f : 0.32f;
-            float start = -step * (count - 1) * 0.5f;
-            float z = index % 2 == 0 ? 0.04f : -0.04f;
-            body.localScale = new Vector3(scale, scale, scale);
-            body.localPosition = new Vector3(home.x + start + step * index, home.y, home.z + z);
+            for (int i = 0; i < exercise.Structure.Links.Count; i++)
+            {
+                CircuitLinkSpec link = exercise.Structure.Links[i];
+                bool toLed = string.Equals(link.ToId, CircuitLinkSpec.Led, StringComparison.OrdinalIgnoreCase);
+                if (toLed && !preset.WireLed)
+                    continue;
+                if (!toLed && preset.Omits(link.ToId, link.Port))
+                    continue;
+
+                bool fromSwitch = CircuitStructure.IsSwitch(link.FromId);
+                if (fromSwitch && !preset.WireSwitches)
+                    continue;
+                if (!fromSwitch && !toLed && !preset.WireGates)
+                    continue;
+
+                OutputPinView output = fromSwitch
+                    ? OutputOf(string.Equals(link.FromId, CircuitLinkSpec.SwitchB, StringComparison.OrdinalIgnoreCase) ? switchB : switchA)
+                    : OutputOf(ModuleById(link.FromId));
+                InputPinView input = toLed
+                    ? InputOfLed()
+                    : InputOf(ModuleById(link.ToId), string.Equals(link.Port, "B", StringComparison.OrdinalIgnoreCase));
+                connector.TryWire(output, input);
+            }
+        }
+
+        private GateView ModuleById(string id)
+        {
+            if (id != null && id.Length > 1 && id[0] == 'm')
+            {
+                int number;
+                if (int.TryParse(id.Substring(1), out number) && number >= 1 && number <= _modules.Count)
+                    return _modules[number - 1];
+            }
+
+            return _modules.Count > 0 ? _modules[0] : activeGate;
+        }
+
+        private static OutputPinView OutputOf(Component owner)
+        {
+            if (owner == null)
+                return null;
+
+            return owner.GetComponentInChildren<OutputPinView>(true);
+        }
+
+        private static InputPinView InputOf(GateView gate, bool portB)
+        {
+            if (gate == null)
+                return null;
+
+            InputPinView[] pins = gate.GetComponentsInChildren<InputPinView>(true);
+            for (int i = 0; i < pins.Length; i++)
+            {
+                InputPinView pin = pins[i];
+                if (pin != null && !pin.IsLedInput && pin.IsPortB == portB)
+                    return pin;
+            }
+
+            return null;
+        }
+
+        private InputPinView InputOfLed()
+        {
+            if (led == null)
+                return null;
+
+            return led.GetComponentInChildren<InputPinView>(true);
+        }
+
+        private void RefreshModuleButtons()
+        {
+            if (_tasks == null)
+                return;
+
+            int focus = 0;
+            var captions = new List<string>();
+            for (int i = 0; i < _modules.Count; i++)
+            {
+                GateView module = _modules[i];
+                if (module == null || !module.gameObject.activeInHierarchy)
+                    continue;
+
+                if (module == _focused)
+                    focus = captions.Count;
+
+                string gateName = module.Node != null ? module.Node.GateName : module.Type.ToString();
+                captions.Add("Comp. " + (captions.Count + 1) + "\n" + gateName);
+            }
+
+            _tasks.SetStationModules(captions, focus, FocusModule);
+        }
+
+        private void RefreshFocusVisuals()
+        {
+            for (int i = 0; i < _modules.Count; i++)
+            {
+                GateView module = _modules[i];
+                if (module == null || !module.gameObject.activeInHierarchy)
+                    continue;
+
+                module.SetStationFocus(module == _focused);
+            }
+
+            HighlightSelectedGate();
+        }
+
+        private void ListenNav(string moduleName, UnityEngine.Events.UnityAction action)
+        {
+            Button button = _tasks != null ? _tasks.NavButton(moduleName) : null;
+            if (button != null)
+                button.onClick.AddListener(action);
+        }
+
+        private void SilenceNav(string moduleName, UnityEngine.Events.UnityAction action)
+        {
+            Button button = _tasks != null ? _tasks.NavButton(moduleName) : null;
+            if (button != null)
+                button.onClick.RemoveListener(action);
+        }
+
+        private void HighlightNav(string moduleName)
+        {
+            Paint(_tasks != null ? _tasks.NavButton("Fundamentos") : null, moduleName == "Fundamentos");
+            Paint(_tasks != null ? _tasks.NavButton("Aplicación Real") : null, moduleName == "Aplicación Real");
+            Paint(_tasks != null ? _tasks.NavButton("Diagnóstico") : null, moduleName == "Diagnóstico");
         }
 
         private static void ClaimPins(GateView gate)

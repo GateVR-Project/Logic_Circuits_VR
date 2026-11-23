@@ -26,6 +26,8 @@ namespace GateVR.Presentation
 
         private GateNode _node;
         private MaterialPropertyBlock _housingTint;
+        private float _labelOffset = 0.85f;
+        private bool _stationFocus;
 
         public GateType Type
         {
@@ -77,6 +79,21 @@ namespace GateVR.Presentation
             return true;
         }
 
+        public void SetLabelOffset(float offset)
+        {
+            _labelOffset = offset < 0.2f ? 0.2f : offset;
+            RefreshAppearance();
+        }
+
+        /// <summary>
+        /// Resalta el módulo elegido. No añade colliders.
+        /// </summary>
+        public void SetStationFocus(bool focused)
+        {
+            _stationFocus = focused;
+            TintHousing(ColorFor(gateType));
+        }
+
         public void RefreshAppearance()
         {
             ApplyPortState();
@@ -104,11 +121,11 @@ namespace GateVR.Presentation
                 label.text = gateName;
                 label.gameObject.SetActive(true);
                 label.raycastTarget = false;
-                label.fontSize = gateName.Length > 3 ? 2.4f : 3f;
+                label.fontSize = gateName.Length > 3 ? 2.2f : 2.8f;
                 RectTransform plate = label.rectTransform;
-                plate.sizeDelta = new Vector2(1.35f, 0.34f);
-                plate.localPosition = new Vector3(0f, 0.72f, 0f);
-                FaceUser(plate);
+                plate.sizeDelta = new Vector2(1.6f, 0.42f);
+                plate.localPosition = new Vector3(0f, _labelOffset, 0f);
+                OrientLabel(plate);
                 foundTypeLabel = true;
             }
 
@@ -121,7 +138,7 @@ namespace GateVR.Presentation
 
                 label.raycastTarget = false;
                 if (label.gameObject.name.StartsWith("Label_", System.StringComparison.Ordinal))
-                    FaceUser(label.rectTransform);
+                    OrientLabel(label.rectTransform);
             }
 
             if (!foundTypeLabel)
@@ -174,7 +191,9 @@ namespace GateVR.Presentation
 
             label.text = gateName;
             label.color = Color.white;
-            FaceUser(label.transform);
+            label.raycastTarget = false;
+            label.rectTransform.localPosition = new Vector3(0f, _labelOffset, 0f);
+            OrientLabel(label.rectTransform);
         }
 
         public static bool TryParse(string gateName, out GateType type)
@@ -225,17 +244,18 @@ namespace GateVR.Presentation
             return false;
         }
 
-        private static void FaceUser(Transform plate)
+        private static void OrientLabel(Transform plate)
         {
             Camera camera = Camera.main;
             Vector3 user = camera != null
                 ? camera.transform.position
-                : plate.position + new Vector3(0f, 0.85f, -1.1f);
+                : plate.position + new Vector3(0f, 0.4f, -1.2f);
             Vector3 towardUser = user - plate.position;
+            towardUser.y = 0f;
             if (towardUser.sqrMagnitude < 0.0001f)
-                return;
+                towardUser = Vector3.back;
 
-            plate.rotation = Quaternion.LookRotation(towardUser, Vector3.up);
+            plate.rotation = Quaternion.LookRotation(-towardUser.normalized, Vector3.up);
         }
 
         private void TintHousing(Color color)
@@ -251,9 +271,13 @@ namespace GateVR.Presentation
             if (_housingTint == null)
                 _housingTint = new MaterialPropertyBlock();
 
+            if (_stationFocus)
+                color = Color.Lerp(color, new Color(1f, 0.92f, 0.55f), 0.42f);
+
             renderer.GetPropertyBlock(_housingTint);
             _housingTint.SetColor("_BaseColor", color);
             _housingTint.SetColor("_Color", color);
+            _housingTint.SetColor("_EmissionColor", _stationFocus ? color * 0.35f : Color.black);
             renderer.SetPropertyBlock(_housingTint);
         }
 

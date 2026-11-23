@@ -9,8 +9,8 @@ namespace GateVR.Presentation
     [RequireComponent(typeof(LineRenderer))]
     public class WireView : MonoBehaviour
     {
-        [SerializeField] private Color offColor = new Color(0.85f, 0.12f, 0.1f);
-        [SerializeField] private Color onColor = new Color(0.2f, 1f, 0.35f);
+        [SerializeField] private Color offColor = new Color(0.22f, 0.28f, 0.38f);
+        [SerializeField] private Color onColor = new Color(0.15f, 0.95f, 0.42f);
 
         private LineRenderer _line;
         private OutputPinView _output;
@@ -32,6 +32,11 @@ namespace GateVR.Presentation
             _line = GetComponent<LineRenderer>();
             _line.positionCount = 3;
             _line.useWorldSpace = true;
+            if (_line.startWidth < 0.016f)
+            {
+                _line.startWidth = 0.018f;
+                _line.endWidth = 0.018f;
+            }
         }
 
         public void Bind(OutputPinView output, InputPinView input)
@@ -74,7 +79,7 @@ namespace GateVR.Presentation
             Vector3 start = _output.ConnectionPoint;
             Vector3 end = _input.ConnectionPoint;
             Vector3 mid = (start + end) * 0.5f;
-            mid.y = Mathf.Max(start.y, end.y) + 0.04f;
+            mid.y = Mathf.Max(start.y, end.y) + 0.1f;
             _line.positionCount = 3;
             _line.SetPosition(0, start);
             _line.SetPosition(1, mid);

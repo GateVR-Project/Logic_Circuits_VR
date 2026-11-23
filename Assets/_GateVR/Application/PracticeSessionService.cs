@@ -63,6 +63,51 @@ namespace GateVR.Application
             return CurrentExercise;
         }
 
+        public PracticeExercise PeekNextExercise()
+        {
+            int current = IndexOfCurrent();
+            return _exercises[(current + 1) % _exercises.Count];
+        }
+
+        public int IndexInModule(PracticeExercise exercise)
+        {
+            int index = 0;
+            for (int i = 0; i < _exercises.Count; i++)
+            {
+                if (!string.Equals(_exercises[i].ModuleName, exercise.ModuleName, StringComparison.Ordinal))
+                    continue;
+
+                index++;
+                if (string.Equals(_exercises[i].Id, exercise.Id, StringComparison.Ordinal))
+                    return index;
+            }
+
+            return 1;
+        }
+
+        public int CountInModule(string moduleName)
+        {
+            int count = 0;
+            for (int i = 0; i < _exercises.Count; i++)
+            {
+                if (string.Equals(_exercises[i].ModuleName, moduleName, StringComparison.Ordinal))
+                    count++;
+            }
+
+            return count;
+        }
+
+        private int IndexOfCurrent()
+        {
+            for (int i = 0; i < _exercises.Count; i++)
+            {
+                if (string.Equals(_exercises[i].Id, CurrentExercise.Id, StringComparison.Ordinal))
+                    return i;
+            }
+
+            return 0;
+        }
+
         /// <summary>
         /// Comprueba el cableado y, si es válido, recorre las cuatro combinaciones de A y B.
         /// Restaura el estado original de los interruptores antes de volver.
@@ -231,6 +276,12 @@ namespace GateVR.Application
 
             if (!targetGate.HasAllInputsConnected)
             {
+                if (targetGate.InputA == null && targetGate.InputB != null)
+                    return (false, "La entrada A de la compuerta no tiene cable.");
+
+                if (targetGate.InputB == null && targetGate.InputA != null)
+                    return (false, "La entrada B de la compuerta no tiene cable.");
+
                 int connected = CountConnectedInputs(targetGate);
                 return (false, "La compuerta " + targetGate.GateName + " tiene " + connected
                     + " de " + targetGate.RequiredInputCount + " entradas conectadas.");

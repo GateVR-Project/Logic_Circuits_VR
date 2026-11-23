@@ -20,6 +20,8 @@ namespace GateVR.Application
             bool keepCompatibleWiring = true,
             string moduleName = null,
             CircuitStructure structure = null,
+            IReadOnlyList<string> initialModuleTypes = null,
+            StationPreset preset = null,
             IReadOnlyList<PracticeTaskDefinition> tasks = null)
         {
             if (string.IsNullOrWhiteSpace(id))
@@ -44,6 +46,10 @@ namespace GateVR.Application
             KeepCompatibleWiring = keepCompatibleWiring;
             ModuleName = string.IsNullOrWhiteSpace(moduleName) ? "Fundamentos" : moduleName;
             Structure = structure;
+            InitialModuleTypes = initialModuleTypes == null
+                ? null
+                : new List<string>(initialModuleTypes).AsReadOnly();
+            Preset = preset;
             PracticeTaskDefinition.ValidateSet(tasks);
             Tasks = new List<PracticeTaskDefinition>(tasks).AsReadOnly();
         }
@@ -87,6 +93,16 @@ namespace GateVR.Application
         /// Topología obligatoria. Si es null, la práctica evalúa una sola compuerta.
         /// </summary>
         public CircuitStructure Structure { get; private set; }
+
+        /// <summary>
+        /// Tipos con los que abre cada módulo. Si es null, se usan los de la estructura o InitialGateType.
+        /// </summary>
+        public IReadOnlyList<string> InitialModuleTypes { get; private set; }
+
+        /// <summary>
+        /// Cableado inicial. Un diagnóstico puede dejar una conexión fuera.
+        /// </summary>
+        public StationPreset Preset { get; private set; }
 
         public IReadOnlyList<PracticeTaskDefinition> Tasks { get; private set; }
     }

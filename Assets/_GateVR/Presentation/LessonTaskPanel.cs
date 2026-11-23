@@ -13,7 +13,7 @@ namespace GateVR.Presentation
     {
         private const float Width = 820f;
         private const float RowHeight = 84f;
-        private const float BaseHeight = 970f;
+        private const float BaseHeight = 1054f;
 
         private readonly RectTransform _canvas;
         private readonly TMP_FontAsset _font;
@@ -26,6 +26,7 @@ namespace GateVR.Presentation
         private readonly LayoutElement _actionsElement;
         private readonly RectTransform _moduleRow;
         private readonly Dictionary<GateType, Button> _gateButtons = new Dictionary<GateType, Button>();
+        private readonly Dictionary<string, Button> _navButtons = new Dictionary<string, Button>();
         private readonly List<GameObject> _rowObjects = new List<GameObject>();
         private readonly List<GameObject> _moduleButtons = new List<GameObject>();
         private int _taskCount = 3;
@@ -107,8 +108,15 @@ namespace GateVR.Presentation
             column.childForceExpandWidth = true;
             column.childForceExpandHeight = false;
 
-            RectTransform header = CreateSection(content, "SeccionEncabezado", 220f, new Color(0.13f, 0.18f, 0.26f, 0.98f));
+            RectTransform header = CreateSection(content, "SeccionEncabezado", 304f, new Color(0.13f, 0.18f, 0.26f, 0.98f));
             TextMeshProUGUI module = CreateLabel(header, "Txt_Module", "Fundamentos", 24f, font, FontStyles.Normal, new Color(0.72f, 0.84f, 0.95f));
+            RectTransform nav = CreateRow(header, "FilaSubmodulos", 68f);
+            Button fundamentals = EnsureGateButton(nav, null, "Btn_Fundamentos", "Fundamentos", font);
+            Button application = EnsureGateButton(nav, null, "Btn_Aplicacion", "Aplicación", font);
+            Button diagnosis = EnsureGateButton(nav, null, "Btn_Diagnostico", "Diagnóstico", font);
+            FitNavCaption(fundamentals);
+            FitNavCaption(application);
+            FitNavCaption(diagnosis);
             AdoptText(header, title, 36f, font, FontStyles.Bold, 48f);
             AdoptText(header, objective, 24f, font, FontStyles.Normal, 96f);
 
@@ -187,8 +195,41 @@ namespace GateVR.Presentation
                 actionsElement,
                 moduleRow,
                 gateButtons);
+            panel.RememberNav("Fundamentos", fundamentals);
+            panel.RememberNav("Aplicación Real", application);
+            panel.RememberNav("Diagnóstico", diagnosis);
             panel.Resize(3);
             return panel;
+        }
+
+        public Button NavButton(string moduleName)
+        {
+            Button button;
+            if (moduleName != null && _navButtons.TryGetValue(moduleName, out button))
+                return button;
+
+            return null;
+        }
+
+        private static void FitNavCaption(Button button)
+        {
+            if (button == null)
+                return;
+
+            TextMeshProUGUI caption = button.GetComponentInChildren<TextMeshProUGUI>(true);
+            if (caption == null)
+                return;
+
+            caption.fontSize = 20f;
+            caption.alignment = TextAlignmentOptions.Center;
+            caption.textWrappingMode = TextWrappingModes.NoWrap;
+            caption.overflowMode = TextOverflowModes.Ellipsis;
+        }
+
+        private void RememberNav(string moduleName, Button button)
+        {
+            if (button != null)
+                _navButtons[moduleName] = button;
         }
 
         public Button GateButton(GateType type)
@@ -200,7 +241,7 @@ namespace GateVR.Presentation
             return null;
         }
 
-        public void SetStationModules(int count, int focusedIndex, System.Action<int> onSelect)
+        public void SetStationModules(IReadOnlyList<string> captions, int focusedIndex, System.Action<int> onSelect)
         {
             for (int i = _moduleButtons.Count - 1; i >= 0; i--)
             {
@@ -209,19 +250,20 @@ namespace GateVR.Presentation
             }
 
             _moduleButtons.Clear();
+            int count = captions == null ? 0 : captions.Count;
             bool show = count > 1 && _moduleRow != null;
             if (_moduleRow != null)
                 _moduleRow.gameObject.SetActive(show);
 
-            _moduleExtra = show ? 58f : 0f;
+            _moduleExtra = show ? 84f : 0f;
             if (_actionsElement != null)
                 _actionsElement.preferredHeight = 268f + _moduleExtra;
 
             LayoutElement rowElement = _moduleRow != null ? _moduleRow.GetComponent<LayoutElement>() : null;
             if (rowElement != null)
             {
-                rowElement.preferredHeight = show ? 52f : 0f;
-                rowElement.minHeight = show ? 52f : 0f;
+                rowElement.preferredHeight = show ? 76f : 0f;
+                rowElement.minHeight = show ? 76f : 0f;
             }
 
             if (show)
@@ -231,7 +273,12 @@ namespace GateVR.Presentation
                 for (int i = 0; i < count; i++)
                 {
                     int moduleIndex = i;
-                    Button button = EnsureGateButton(_moduleRow, null, "Btn_Modulo_" + _moduleGeneration + "_" + (i + 1), "M" + (i + 1), _font);
+                    string caption = string.IsNullOrEmpty(captions[i]) ? "Comp. " + (i + 1) : captions[i];
+                    Button button = EnsureGateButton(_moduleRow, null, "Btn_Modulo_" + _moduleGeneration + "_" + (i + 1), caption, _font);
+                    TextMeshProUGUI buttonLabel = button.GetComponentInChildren<TextMeshProUGUI>(true);
+                    if (buttonLabel != null)
+                        buttonLabel.fontSize = 18f;
+
                     if (onSelect != null)
                         button.onClick.AddListener(delegate { onSelect(moduleIndex); });
 
@@ -322,6 +369,8 @@ namespace GateVR.Presentation
                 box.center = Vector3.zero;
                 box.size = new Vector3(Width, height, 20f);
             }
+
+            Place(_canvas);
         }
 
         private GameObject CreateRow(TaskStatus task)
@@ -425,14 +474,31 @@ namespace GateVR.Presentation
         private static void Place(RectTransform canvas)
         {
             Camera camera = Camera.main;
-            Vector3 board = new Vector3(0.05f, 1.02f, 0.02f);
             Vector3 right = camera != null ? camera.transform.right : Vector3.right;
             right.y = 0f;
             if (right.sqrMagnitude < 0.001f)
                 right = Vector3.right;
             right.Normalize();
 
-            Vector3 position = board + right * 1.12f + Vector3.up * 0.62f;
+            float tableEdge = 1f;
+            GameObject mesa = GameObject.Find("Mesa");
+            if (mesa != null)
+            {
+                Renderer renderer = mesa.GetComponent<Renderer>();
+                if (renderer != null)
+                    tableEdge = Mathf.Max(Mathf.Abs(renderer.bounds.min.x), Mathf.Abs(renderer.bounds.max.x));
+            }
+
+            float width = Mathf.Abs(canvas.sizeDelta.x * canvas.lossyScale.x);
+            if (width < 0.2f)
+                width = Width * 0.00115f;
+
+            // El borde cercano del panel queda 12 cm fuera de la mesa,
+            // para no tapar el LED ni el extremo derecho de la placa.
+            float center = tableEdge + 0.12f + width * 0.5f;
+            Vector3 position = right * center;
+            position.y = 1.22f;
+            position.z = 0.02f;
             canvas.position = position;
             if (camera == null)
                 return;

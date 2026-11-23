@@ -210,6 +210,7 @@ namespace GateVR.EditorTools
             tmp.rectTransform.sizeDelta = new Vector2(width, width * 0.42f);
             tmp.textWrappingMode = TextWrappingModes.NoWrap;
             tmp.overflowMode = TextOverflowModes.Overflow;
+            tmp.raycastTarget = false;
             tmp.ForceMeshUpdate();
             FaceUser(plate.transform);
         }
@@ -219,12 +220,13 @@ namespace GateVR.EditorTools
             Camera camera = Camera.main;
             Vector3 user = camera != null
                 ? camera.transform.position
-                : plate.position + new Vector3(0f, 0.85f, -1.1f);
-            Vector3 toUser = user - plate.position;
-            if (toUser.sqrMagnitude < 0.0001f)
-                return;
+                : plate.position + new Vector3(0f, 0.4f, -1.2f);
+            Vector3 towardUser = user - plate.position;
+            towardUser.y = 0f;
+            if (towardUser.sqrMagnitude < 0.0001f)
+                towardUser = Vector3.back;
 
-            plate.rotation = Quaternion.LookRotation(toUser, Vector3.up);
+            plate.rotation = Quaternion.LookRotation(-towardUser.normalized, Vector3.up);
         }
 
         public static void HideRootMesh(GameObject host)
