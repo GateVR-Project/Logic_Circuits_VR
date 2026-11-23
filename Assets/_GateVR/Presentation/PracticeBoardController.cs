@@ -36,7 +36,6 @@ namespace GateVR.Presentation
         [SerializeField] private Color errorColor = new Color(1f, 0.45f, 0.4f);
         [SerializeField] private bool developmentFreeNavigation;
 
-        private static Sprite _buttonSprite;
         private PracticeSessionService _session;
         private LessonProgress _progress;
         private LessonTaskPanel _tasks;
@@ -69,14 +68,11 @@ namespace GateVR.Presentation
             if (notButton != null)
                 notButton.onClick.AddListener(SelectNot);
 
-            if (_tasks != null && _tasks.UnderstoodButton != null)
-                _tasks.UnderstoodButton.onClick.AddListener(AcknowledgeRequirement);
-
             if (switchA != null)
-                switchA.Interacted += OnStudentSwitch;
+                switchA.Interacted += OnSwitchA;
 
             if (switchB != null)
-                switchB.Interacted += OnStudentSwitch;
+                switchB.Interacted += OnSwitchB;
 
             if (connector != null)
                 connector.WiringChanged += OnWiringChanged;
@@ -102,14 +98,11 @@ namespace GateVR.Presentation
             if (notButton != null)
                 notButton.onClick.RemoveListener(SelectNot);
 
-            if (_tasks != null && _tasks.UnderstoodButton != null)
-                _tasks.UnderstoodButton.onClick.RemoveListener(AcknowledgeRequirement);
-
             if (switchA != null)
-                switchA.Interacted -= OnStudentSwitch;
+                switchA.Interacted -= OnSwitchA;
 
             if (switchB != null)
-                switchB.Interacted -= OnStudentSwitch;
+                switchB.Interacted -= OnSwitchB;
 
             if (connector != null)
                 connector.WiringChanged -= OnWiringChanged;
@@ -159,15 +152,6 @@ namespace GateVR.Presentation
             _progress.Load(exercise);
             LoadPracticeStation(exercise);
             RefreshProgressUi();
-        }
-
-        public void AcknowledgeRequirement()
-        {
-            _progress.AcknowledgeRequirement();
-            RefreshProgressUi();
-            SetFeedback(
-                "Requerimiento leído. Confirma la compuerta " + _session.CurrentExercise.RequiredGateType + ".",
-                hintColor);
         }
 
         public void SelectAnd()
@@ -287,9 +271,19 @@ namespace GateVR.Presentation
             return true;
         }
 
-        private void OnStudentSwitch()
+        private void OnSwitchA()
         {
-            _progress.NoteManualSwitch();
+            NoteStudentSwitch("A");
+        }
+
+        private void OnSwitchB()
+        {
+            NoteStudentSwitch("B");
+        }
+
+        private void NoteStudentSwitch(string port)
+        {
+            _progress.NoteManualSwitch(port);
             RefreshProgressUi();
         }
 
@@ -357,19 +351,40 @@ namespace GateVR.Presentation
             PracticeExercise exercise = _session.CurrentExercise;
             ShowPracticeTexts();
 
+            if (_tasks != null)
+            {
+                _tasks.SetModule(exercise.ModuleName);
+                _tasks.SetTruthTable(FormatTruthTable(exercise));
+            }
+
             if (exercise.UsesSingleInput)
             {
-                SetFeedback(
-                    "Práctica activa: " + exercise.RequiredGateType
-                    + ". Conecta el interruptor A a la entrada A y la salida al LED.",
-                    hintColor);
+                SetFeedback("Conecta A con la compuerta y la salida con el LED. Luego prueba A y pulsa Comprobar.", hintColor);
                 return;
             }
 
-            SetFeedback(
-                "Práctica activa: " + exercise.RequiredGateType
-                + ". Conecta los interruptores a la compuerta y la salida al LED.",
-                hintColor);
+            SetFeedback("Conecta A, B y la salida Y. Prueba ambos interruptores y pulsa Comprobar.", hintColor);
+        }
+
+        private static string FormatTruthTable(PracticeExercise exercise)
+        {
+            if (exercise.UsesSingleInput)
+            {
+                return "<mspace=0.7em>A  Y\n"
+                    + "0  " + Bit(exercise.ExpectedTruthTable(false, false)) + "\n"
+                    + "1  " + Bit(exercise.ExpectedTruthTable(true, false)) + "</mspace>";
+            }
+
+            return "<mspace=0.7em>A B  Y\n"
+                + "0 0  " + Bit(exercise.ExpectedTruthTable(false, false)) + "\n"
+                + "0 1  " + Bit(exercise.ExpectedTruthTable(false, true)) + "\n"
+                + "1 0  " + Bit(exercise.ExpectedTruthTable(true, false)) + "\n"
+                + "1 1  " + Bit(exercise.ExpectedTruthTable(true, true)) + "</mspace>";
+        }
+
+        private static string Bit(bool value)
+        {
+            return value ? "1" : "0";
         }
 
         private void ShowPracticeTexts()
@@ -422,129 +437,27 @@ namespace GateVR.Presentation
 
         private void EnsureGateButtons()
         {
-            Transform parent = titleText != null ? titleText.transform.parent : null;
-            if (parent == null)
-            {
-                Canvas canvas = FindAnyObjectByType<Canvas>();
-                if (canvas != null)
-                    parent = canvas.transform;
-            }
-
-            if (parent == null)
+            Canvas canvasComponent = titleText != null
+                ? titleText.GetComponentInParent<Canvas>()
+                : FindAnyObjectByType<Canvas>();
+            if (canvasComponent == null)
                 return;
 
+            RectTransform canvas = canvasComponent.transform as RectTransform;
             TMP_FontAsset font = titleText != null ? titleText.font : TMP_Settings.defaultFontAsset;
-            _tasks = LessonTaskPanel.Create(parent, font);
-            EnsureCaption(parent, font);
-            if (andButton == null)
-                andButton = EnsureButton(parent, "Btn_AND", "AND", new Vector2(250f, 150f), font);
-            if (orButton == null)
-                orButton = EnsureButton(parent, "Btn_OR", "OR", new Vector2(250f, 100f), font);
-            if (notButton == null)
-                notButton = EnsureButton(parent, "Btn_NOT", "NOT", new Vector2(250f, 50f), font);
-        }
-
-        private static void EnsureCaption(Transform parent, TMP_FontAsset font)
-        {
-            Transform existing = parent.Find("Txt_GateSelector");
-            TextMeshProUGUI text;
-            if (existing != null)
-            {
-                text = existing.GetComponent<TextMeshProUGUI>();
-            }
-            else
-            {
-                GameObject caption = new GameObject("Txt_GateSelector", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
-                caption.layer = parent.gameObject.layer;
-                caption.transform.SetParent(parent, false);
-                RectTransform rect = caption.GetComponent<RectTransform>();
-                rect.anchorMin = new Vector2(0.5f, 0.5f);
-                rect.anchorMax = new Vector2(0.5f, 0.5f);
-                rect.pivot = new Vector2(0.5f, 0.5f);
-                rect.sizeDelta = new Vector2(180f, 28f);
-                rect.anchoredPosition = new Vector2(250f, 195f);
-                text = caption.GetComponent<TextMeshProUGUI>();
-            }
-
-            if (text == null)
-                return;
-
-            text.text = "Compuerta";
-            text.fontSize = 20f;
-            text.alignment = TextAlignmentOptions.Center;
-            text.color = Color.white;
-            text.raycastTarget = false;
-            if (font != null)
-                text.font = font;
-        }
-
-        private static Button EnsureButton(Transform parent, string name, string label, Vector2 position, TMP_FontAsset font)
-        {
-            Transform existing = parent.Find(name);
-            if (existing != null)
-            {
-                Button found = existing.GetComponent<Button>();
-                if (found != null)
-                    return found;
-            }
-
-            GameObject buttonObject = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
-            buttonObject.layer = parent.gameObject.layer;
-            buttonObject.transform.SetParent(parent, false);
-
-            RectTransform rect = buttonObject.GetComponent<RectTransform>();
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(150f, 36f);
-            rect.anchoredPosition = position;
-
-            Image image = buttonObject.GetComponent<Image>();
-            image.sprite = ButtonSprite();
-            image.type = Image.Type.Simple;
-            image.color = new Color(0.16f, 0.24f, 0.36f, 0.95f);
-            image.raycastTarget = true;
-
-            Button button = buttonObject.GetComponent<Button>();
-            button.targetGraphic = image;
-
-            GameObject textObject = new GameObject("Text", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
-            textObject.layer = buttonObject.layer;
-            textObject.transform.SetParent(buttonObject.transform, false);
-            RectTransform textRect = textObject.GetComponent<RectTransform>();
-            textRect.anchorMin = Vector2.zero;
-            textRect.anchorMax = Vector2.one;
-            textRect.offsetMin = Vector2.zero;
-            textRect.offsetMax = Vector2.zero;
-
-            TextMeshProUGUI text = textObject.GetComponent<TextMeshProUGUI>();
-            text.text = label;
-            text.fontSize = 22f;
-            text.alignment = TextAlignmentOptions.Center;
-            text.color = Color.white;
-            text.raycastTarget = false;
-            if (font != null)
-                text.font = font;
-
-            return button;
-        }
-
-        private static Sprite ButtonSprite()
-        {
-            if (_buttonSprite != null)
-                return _buttonSprite;
-
-            _buttonSprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/UISprite.psd");
-            if (_buttonSprite != null)
-                return _buttonSprite;
-
-            Texture2D texture = Texture2D.whiteTexture;
-            _buttonSprite = Sprite.Create(
-                texture,
-                new Rect(0f, 0f, texture.width, texture.height),
-                new Vector2(0.5f, 0.5f),
-                100f);
-            return _buttonSprite;
+            _tasks = LessonTaskPanel.Mount(
+                canvas,
+                font,
+                titleText,
+                objectiveText,
+                conditionText,
+                feedbackText,
+                checkButton,
+                nextButton,
+                resetButton,
+                ref andButton,
+                ref orButton,
+                ref notButton);
         }
 
         private void HighlightSelectedGate()

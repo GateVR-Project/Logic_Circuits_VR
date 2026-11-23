@@ -15,7 +15,8 @@ namespace GateVR.Application
     public enum LessonTaskState
     {
         Pending,
-        Completed
+        Completed,
+        Invalidated
     }
 
     /// <summary>
@@ -70,8 +71,8 @@ namespace GateVR.Application
 
         public static void ValidateSet(IReadOnlyList<PracticeTaskDefinition> tasks)
         {
-            if (tasks == null || tasks.Count < 5)
-                throw new ArgumentException("Cada práctica necesita al menos cinco tareas.", nameof(tasks));
+            if (tasks == null || tasks.Count < 1)
+                throw new ArgumentException("La lección necesita al menos una tarea.", nameof(tasks));
 
             var ids = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < tasks.Count; i++)
@@ -178,48 +179,43 @@ namespace GateVR.Application
     /// </summary>
     public static class PracticeTasks
     {
-        public static IReadOnlyList<PracticeTaskDefinition> ForGate(string gateName, bool singleInput)
+        public static IReadOnlyList<PracticeTaskDefinition> ForGate(bool singleInput)
         {
-            string wire = singleInput
-                ? "Conecta el interruptor A a la entrada A y la salida de la compuerta al LED."
-                : "Conecta los interruptores A y B a la compuerta y la salida al LED.";
+            string wireTitle = singleInput
+                ? "Conecta A y la salida Y"
+                : "Conecta A, B y la salida Y";
+            string wireDetail = singleInput
+                ? "Une el interruptor A con la entrada A y la salida de la compuerta con el LED."
+                : "Une los interruptores A y B con la compuerta y la salida con el LED.";
+            string tryTitle = singleInput
+                ? "Prueba el interruptor A"
+                : "Prueba los interruptores A y B";
+            string tryDetail = singleInput
+                ? "Cambia A con el controlador y observa el LED."
+                : "Cambia A y B con el controlador y observa el LED.";
 
             return new List<PracticeTaskDefinition>
             {
                 new PracticeTaskDefinition(
-                    "read",
-                    "Leer el requerimiento",
-                    "Pulsa Entendido cuando hayas leído el objetivo.",
-                    1,
-                    TaskConditionKind.ReadRequirement),
-                new PracticeTaskDefinition(
-                    "gate",
-                    "Confirmar la compuerta",
-                    "Pulsa " + gateName + " para confirmar la compuerta de esta práctica.",
-                    2,
-                    TaskConditionKind.ConfirmGate,
-                    "read"),
-                new PracticeTaskDefinition(
                     "wire",
-                    "Cablear el circuito",
-                    wire,
-                    3,
-                    TaskConditionKind.WireCircuit,
-                    "gate"),
+                    wireTitle,
+                    wireDetail,
+                    1,
+                    TaskConditionKind.WireCircuit),
                 new PracticeTaskDefinition(
                     "try",
-                    "Probar los interruptores",
-                    "Cambia los interruptores con el controlador y observa el LED.",
-                    4,
+                    tryTitle,
+                    tryDetail,
+                    2,
                     TaskConditionKind.TrySwitches,
                     "wire"),
                 new PracticeTaskDefinition(
                     "check",
-                    "Comprobar el resultado",
-                    "Pulsa Comprobar y consigue un circuito correcto.",
-                    5,
+                    "Comprueba el circuito",
+                    "Pulsa Comprobar cuando el circuito cumpla la condición.",
+                    3,
                     TaskConditionKind.CheckResult,
-                    "try")
+                    "wire")
             }.AsReadOnly();
         }
     }

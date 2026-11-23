@@ -4,16 +4,18 @@ using System.Collections.Generic;
 namespace GateVR.Application
 {
     /// <summary>
-    /// Calcula el estado de las tareas a partir de hechos de la sesión.
-    /// Una tarea completada vuelve a pendiente cuando falla su condición o una dependencia.
+    /// Calcula el estado de las tareas a partir de hechos observables.
+    /// Quitar un cable necesario invalida las tareas que dependen del cableado.
     /// </summary>
     public sealed class LessonProgress
     {
+        private readonly HashSet<string> _achieved = new HashSet<string>(StringComparer.Ordinal);
         private PracticeExercise _exercise;
-        private bool _acknowledged;
+        private bool _requirementShown;
         private bool _studentConfirmedGate;
         private bool _wired;
-        private bool _triedSwitches;
+        private bool _triedA;
+        private bool _triedB;
         private bool _validationFresh;
         private List<TaskStatus> _tasks = new List<TaskStatus>();
 
@@ -42,29 +44,25 @@ namespace GateVR.Application
                 throw new ArgumentNullException(nameof(exercise));
 
             _exercise = exercise;
-            _acknowledged = false;
+            _requirementShown = true;
             _studentConfirmedGate = false;
             _wired = false;
-            _triedSwitches = false;
+            _triedA = false;
+            _triedB = false;
             _validationFresh = false;
-            Rebuild();
-        }
-
-        public void AcknowledgeRequirement()
-        {
-            _acknowledged = true;
+            _achieved.Clear();
             Rebuild();
         }
 
         /// <summary>
-        /// Solo la pulsación manual del estudiante. El cambio automático de Siguiente no llama aquí.
+        /// Selección manual de compuerta. El avance automático de la lección no llama aquí.
         /// </summary>
         public void NoteManualGate(string gateName)
         {
             bool matches = !string.IsNullOrEmpty(gateName)
                 && string.Equals(gateName, _exercise.RequiredGateType, StringComparison.OrdinalIgnoreCase);
 
-            if (_studentConfirmedGate != matches)
+            if (_studentConfirmedGate && !matches)
                 _validationFresh = false;
 
             _studentConfirmedGate = matches;
@@ -81,12 +79,15 @@ namespace GateVR.Application
         }
 
         /// <summary>
-        /// Un interruptor accionado por el estudiante. La tabla de verdad no llama aquí.
+        /// Interruptor accionado por el estudiante. La tabla de verdad no llama aquí.
         /// </summary>
-        public void NoteManualSwitch()
+        public void NoteManualSwitch(string port)
         {
-            _triedSwitches = true;
-            _validationFresh = false;
+            if (string.Equals(port, "B", StringComparison.OrdinalIgnoreCase))
+                _triedB = true;
+            else if (string.Equals(port, "A", StringComparison.OrdinalIgnoreCase))
+                _triedA = true;
+
             Rebuild();
         }
 
@@ -97,13 +98,16 @@ namespace GateVR.Application
         }
 
         /// <summary>
-        /// Reiniciar quita cables y apaga interruptores. La lectura y la compuerta confirmada se conservan.
+        /// Reiniciar limpia cables, pruebas manuales y la aprobación. La lección no cambia.
         /// </summary>
         public void NoteCircuitReset()
         {
             _wired = false;
-            _triedSwitches = false;
+            _triedA = false;
+            _triedB = false;
             _validationFresh = false;
+            _studentConfirmedGate = false;
+            _achieved.Clear();
             Rebuild();
         }
 
@@ -148,12 +152,23 @@ namespace GateVR.Application
             for (int i = 0; i < ordered.Count; i++)
             {
                 bool isDone = completed[ordered[i].Id];
+                LessonTaskState state;
                 if (isDone)
+                {
+                    _achieved.Add(ordered[i].Id);
+                    state = LessonTaskState.Completed;
                     done++;
+                }
+                else if (_achieved.Contains(ordered[i].Id))
+                {
+                    state = LessonTaskState.Invalidated;
+                }
+                else
+                {
+                    state = LessonTaskState.Pending;
+                }
 
-                statuses.Add(new TaskStatus(
-                    ordered[i],
-                    isDone ? LessonTaskState.Completed : LessonTaskState.Pending));
+                statuses.Add(new TaskStatus(ordered[i], state));
             }
 
             _tasks = statuses;
@@ -166,18 +181,26 @@ namespace GateVR.Application
             switch (condition)
             {
                 case TaskConditionKind.ReadRequirement:
-                    return _acknowledged;
+                    return _requirementShown;
                 case TaskConditionKind.ConfirmGate:
                     return _studentConfirmedGate;
                 case TaskConditionKind.WireCircuit:
                     return _wired;
                 case TaskConditionKind.TrySwitches:
-                    return _triedSwitches;
+                    return SwitchesReady();
                 case TaskConditionKind.CheckResult:
                     return _validationFresh;
                 default:
                     return false;
             }
+        }
+
+        private bool SwitchesReady()
+        {
+            if (_exercise.UsesSingleInput)
+                return _triedA;
+
+            return _triedA && _triedB;
         }
 
         private static bool DependenciesMet(PracticeTaskDefinition task, Dictionary<string, bool> completed)

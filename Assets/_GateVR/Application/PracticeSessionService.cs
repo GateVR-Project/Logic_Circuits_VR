@@ -19,28 +19,28 @@ namespace GateVR.Application
                 new PracticeExercise(
                     id: "and-01",
                     title: "Compuerta AND",
-                    objective: "Enciende el LED solo cuando los dos interruptores están encendidos.",
-                    logicConditionText: "LED = A AND B",
+                    objective: "Construye un circuito donde el LED se encienda únicamente cuando A y B estén encendidos.",
+                    logicConditionText: "Y = A AND B",
                     requiredGateType: "AND",
                     expectedTruthTable: (a, b) => a && b,
-                    tasks: PracticeTasks.ForGate("AND", false)),
+                    tasks: PracticeTasks.ForGate(false)),
                 new PracticeExercise(
                     id: "or-01",
                     title: "Compuerta OR",
-                    objective: "Enciende el LED cuando al menos un interruptor está encendido.",
-                    logicConditionText: "LED = A OR B",
+                    objective: "Construye un circuito donde el LED se encienda cuando al menos un interruptor esté encendido.",
+                    logicConditionText: "Y = A OR B",
                     requiredGateType: "OR",
                     expectedTruthTable: (a, b) => a || b,
-                    tasks: PracticeTasks.ForGate("OR", false)),
+                    tasks: PracticeTasks.ForGate(false)),
                 new PracticeExercise(
                     id: "not-01",
                     title: "Compuerta NOT",
-                    objective: "Enciende el LED cuando el interruptor A está apagado.",
-                    logicConditionText: "LED = NOT A",
+                    objective: "Construye un circuito donde el LED se encienda cuando A esté apagado.",
+                    logicConditionText: "Y = NOT A",
                     requiredGateType: "NOT",
                     expectedTruthTable: (a, b) => !a,
                     usesSingleInput: true,
-                    tasks: PracticeTasks.ForGate("NOT", true))
+                    tasks: PracticeTasks.ForGate(true))
             }.AsReadOnly();
 
             CurrentExercise = _exercises[0];

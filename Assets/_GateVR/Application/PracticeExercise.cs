@@ -18,6 +18,7 @@ namespace GateVR.Application
             bool usesSingleInput = false,
             string initialGateType = null,
             bool keepCompatibleWiring = true,
+            string moduleName = null,
             IReadOnlyList<PracticeTaskDefinition> tasks = null)
         {
             if (string.IsNullOrWhiteSpace(id))
@@ -40,6 +41,7 @@ namespace GateVR.Application
                 ? requiredGateType
                 : initialGateType;
             KeepCompatibleWiring = keepCompatibleWiring;
+            ModuleName = string.IsNullOrWhiteSpace(moduleName) ? "Fundamentos" : moduleName;
             PracticeTaskDefinition.ValidateSet(tasks);
             Tasks = new List<PracticeTaskDefinition>(tasks).AsReadOnly();
         }
@@ -73,6 +75,11 @@ namespace GateVR.Application
         /// Si es falso, la práctica empieza sin cables.
         /// </summary>
         public bool KeepCompatibleWiring { get; private set; }
+
+        /// <summary>
+        /// Submódulo pedagógico. Las tres lecciones actuales pertenecen a Fundamentos.
+        /// </summary>
+        public string ModuleName { get; private set; }
 
         public IReadOnlyList<PracticeTaskDefinition> Tasks { get; private set; }
     }

@@ -7,75 +7,152 @@ using UnityEngine.UI;
 namespace GateVR.Presentation
 {
     /// <summary>
-    /// Lista de tareas creada según la práctica activa. No tiene filas fijas.
+    /// Panel de lección en World Space. Las filas se crean según la lista real de tareas.
     /// </summary>
     public sealed class LessonTaskPanel
     {
+        private const float Width = 760f;
+        private const float RowHeight = 56f;
+
         private readonly RectTransform _canvas;
         private readonly TMP_FontAsset _font;
+        private readonly TextMeshProUGUI _moduleText;
+        private readonly TextMeshProUGUI _truthText;
         private readonly TextMeshProUGUI _progressText;
         private readonly RectTransform _fill;
         private readonly RectTransform _rows;
+        private readonly LayoutElement _progressElement;
         private readonly List<GameObject> _rowObjects = new List<GameObject>();
 
         private LessonTaskPanel(
             RectTransform canvas,
             TMP_FontAsset font,
-            Button understoodButton,
+            TextMeshProUGUI moduleText,
+            TextMeshProUGUI truthText,
             TextMeshProUGUI progressText,
             RectTransform fill,
-            RectTransform rows)
+            RectTransform rows,
+            LayoutElement progressElement)
         {
             _canvas = canvas;
             _font = font;
-            UnderstoodButton = understoodButton;
+            _moduleText = moduleText;
+            _truthText = truthText;
             _progressText = progressText;
             _fill = fill;
             _rows = rows;
+            _progressElement = progressElement;
         }
 
-        public Button UnderstoodButton { get; private set; }
-
-        public static LessonTaskPanel Create(Transform parent, TMP_FontAsset font)
+        public static LessonTaskPanel Mount(
+            RectTransform canvas,
+            TMP_FontAsset font,
+            TextMeshProUGUI title,
+            TextMeshProUGUI objective,
+            TextMeshProUGUI condition,
+            TextMeshProUGUI feedback,
+            Button checkButton,
+            Button nextButton,
+            Button resetButton,
+            ref Button andButton,
+            ref Button orButton,
+            ref Button notButton)
         {
-            Transform existing = parent.Find("LessonTasks");
-            if (existing != null)
-                Object.Destroy(existing.gameObject);
+            if (canvas == null)
+                return null;
 
-            RectTransform canvas = parent as RectTransform;
-            GameObject root = new GameObject("LessonTasks", typeof(RectTransform));
-            root.layer = parent.gameObject.layer;
-            root.transform.SetParent(parent, false);
+            Transform previous = canvas.Find("PanelContent");
+            if (previous != null)
+                Object.Destroy(previous.gameObject);
 
-            Button understood = CreateButton(parent, "Btn_Entendido", "Entendido", new Vector2(300f, 4f), font);
-            TextMeshProUGUI progress = CreateLabel(root.transform, "Txt_TaskProgress", "Tareas 0/0", new Vector2(0f, 0f), 22f, font, 280f);
-            RectTransform rootRect = root.GetComponent<RectTransform>();
-            rootRect.anchorMin = new Vector2(0.5f, 0.5f);
-            rootRect.anchorMax = new Vector2(0.5f, 0.5f);
-            rootRect.pivot = new Vector2(0.5f, 0.5f);
-            rootRect.sizeDelta = new Vector2(280f, 40f);
-            rootRect.anchoredPosition = new Vector2(300f, -48f);
-            progress.rectTransform.anchoredPosition = Vector2.zero;
+            Transform oldSurface = canvas.Find("PanelSurface");
+            if (oldSurface != null)
+                Object.Destroy(oldSurface.gameObject);
 
-            RectTransform track = CreateBar(root.transform, "TaskProgressTrack", new Vector2(0f, -36f), 280f, 14f, new Color(0.08f, 0.1f, 0.14f, 0.95f));
-            RectTransform fill = CreateBar(track, "TaskProgressFill", Vector2.zero, 280f, 14f, new Color(0.35f, 0.82f, 0.42f, 1f));
-            fill.anchorMin = new Vector2(0f, 0f);
+            DestroyIfPresent(canvas, "Btn_Entendido");
+            DestroyIfPresent(canvas, "Txt_GateSelector");
+            DestroyIfPresent(canvas, "LessonTasks");
+
+            Place(canvas);
+
+            Image surface = CreateStretch(canvas, "PanelSurface", new Color(0.07f, 0.1f, 0.15f, 0.96f));
+            surface.raycastTarget = true;
+
+            RectTransform content = CreateChild(canvas, "PanelContent");
+            Stretch(content);
+            VerticalLayoutGroup column = content.gameObject.AddComponent<VerticalLayoutGroup>();
+            column.padding = new RectOffset(28, 28, 24, 24);
+            column.spacing = 16f;
+            column.childAlignment = TextAnchor.UpperCenter;
+            column.childControlWidth = true;
+            column.childControlHeight = true;
+            column.childForceExpandWidth = true;
+            column.childForceExpandHeight = false;
+
+            RectTransform header = CreateSection(content, "SeccionEncabezado", 190f, new Color(0.13f, 0.18f, 0.26f, 0.98f));
+            TextMeshProUGUI module = CreateLabel(header, "Txt_Module", "Fundamentos", 22f, font, FontStyles.Normal, new Color(0.72f, 0.84f, 0.95f));
+            AdoptText(header, title, 36f, font, FontStyles.Bold, 44f);
+            AdoptText(header, objective, 24f, font, FontStyles.Normal, 72f);
+
+            RectTransform instructions = CreateSection(content, "SeccionInstrucciones", 290f, new Color(0.1f, 0.15f, 0.22f, 0.98f));
+            AdoptText(instructions, condition, 30f, font, FontStyles.Bold, 40f);
+            TextMeshProUGUI truth = CreateLabel(instructions, "Txt_Truth", string.Empty, 22f, font, FontStyles.Normal, Color.white);
+            truth.alignment = TextAlignmentOptions.TopLeft;
+            LayoutElement truthElement = truth.GetComponent<LayoutElement>();
+            truthElement.preferredHeight = 118f;
+            truthElement.minHeight = 118f;
+            AdoptText(instructions, feedback, 22f, font, FontStyles.Normal, 96f);
+
+            RectTransform progress = CreateSection(content, "SeccionTareas", 236f, new Color(0.09f, 0.14f, 0.2f, 0.98f));
+            LayoutElement progressElement = progress.GetComponent<LayoutElement>();
+            TextMeshProUGUI progressLabel = CreateLabel(progress, "Txt_TaskProgress", "Tareas 0/0", 26f, font, FontStyles.Bold, Color.white);
+            RectTransform track = CreateBar(progress, "TaskProgressTrack", 12f, new Color(0.05f, 0.07f, 0.1f, 1f));
+            RectTransform fill = CreateBar(track, "TaskProgressFill", 12f, new Color(0.32f, 0.78f, 0.48f, 1f));
+            fill.anchorMin = Vector2.zero;
             fill.anchorMax = new Vector2(0f, 1f);
             fill.offsetMin = Vector2.zero;
             fill.offsetMax = Vector2.zero;
             fill.pivot = new Vector2(0f, 0.5f);
 
-            GameObject rowsObject = new GameObject("TaskRows", typeof(RectTransform));
-            rowsObject.layer = parent.gameObject.layer;
-            rowsObject.transform.SetParent(root.transform, false);
-            RectTransform rows = rowsObject.GetComponent<RectTransform>();
-            rows.anchorMin = new Vector2(0.5f, 1f);
-            rows.anchorMax = new Vector2(0.5f, 1f);
-            rows.pivot = new Vector2(0.5f, 1f);
-            rows.sizeDelta = new Vector2(280f, 0f);
-            rows.anchoredPosition = new Vector2(0f, -56f);
+            RectTransform rows = CreateChild(progress, "TaskRows");
+            VerticalLayoutGroup rowLayout = rows.gameObject.AddComponent<VerticalLayoutGroup>();
+            rowLayout.spacing = 8f;
+            rowLayout.childAlignment = TextAnchor.UpperCenter;
+            rowLayout.childControlWidth = true;
+            rowLayout.childControlHeight = true;
+            rowLayout.childForceExpandWidth = true;
+            rowLayout.childForceExpandHeight = false;
+            LayoutElement rowsElement = rows.gameObject.AddComponent<LayoutElement>();
+            rowsElement.flexibleWidth = 1f;
+            rowsElement.preferredHeight = RowHeight;
 
-            return new LessonTaskPanel(canvas, font, understood, progress, fill, rows);
+            RectTransform actions = CreateSection(content, "SeccionAcciones", 200f, new Color(0.12f, 0.16f, 0.23f, 0.98f));
+            RectTransform lessonButtons = CreateRow(actions, "FilaLeccion", 68f);
+            AdoptButton(lessonButtons, checkButton, font);
+            AdoptButton(lessonButtons, nextButton, font);
+            AdoptButton(lessonButtons, resetButton, font);
+
+            CreateLabel(actions, "Txt_GateSelector", "Compuerta", 20f, font, FontStyles.Normal, new Color(0.75f, 0.84f, 0.92f));
+            RectTransform gateRow = CreateRow(actions, "FilaCompuertas", 60f);
+            andButton = EnsureGateButton(gateRow, andButton, "Btn_AND", "AND", font);
+            orButton = EnsureGateButton(gateRow, orButton, "Btn_OR", "OR", font);
+            notButton = EnsureGateButton(gateRow, notButton, "Btn_NOT", "NOT", font);
+
+            LessonTaskPanel panel = new LessonTaskPanel(canvas, font, module, truth, progressLabel, fill, rows, progressElement);
+            panel.Resize(3);
+            return panel;
+        }
+
+        public void SetModule(string moduleName)
+        {
+            if (_moduleText != null)
+                _moduleText.text = string.IsNullOrEmpty(moduleName) ? "Fundamentos" : moduleName;
+        }
+
+        public void SetTruthTable(string text)
+        {
+            if (_truthText != null)
+                _truthText.text = text ?? string.Empty;
         }
 
         public void Bind(IReadOnlyList<TaskStatus> tasks, int completed, int total)
@@ -83,7 +160,7 @@ namespace GateVR.Presentation
             int safeTotal = total < 0 ? 0 : total;
             int safeCompleted = completed < 0 ? 0 : completed;
             if (_progressText != null)
-                _progressText.text = "Tareas " + safeCompleted + "/" + safeTotal;
+                _progressText.text = "Tareas  " + safeCompleted + "/" + safeTotal;
 
             if (_fill != null)
             {
@@ -99,155 +176,317 @@ namespace GateVR.Presentation
 
             _rowObjects.Clear();
             if (tasks == null || _rows == null)
-                return;
-
-            bool waitingRead = false;
-            for (int i = 0; i < tasks.Count; i++)
             {
-                TaskStatus task = tasks[i];
-                if (task == null)
-                    continue;
-
-                if (task.Condition == TaskConditionKind.ReadRequirement && task.State == LessonTaskState.Pending)
-                    waitingRead = true;
-
-                _rowObjects.Add(CreateRow(task, i));
+                Resize(0);
+                return;
             }
 
-            if (UnderstoodButton != null)
-                UnderstoodButton.interactable = waitingRead;
+            for (int i = 0; i < tasks.Count; i++)
+            {
+                if (tasks[i] == null)
+                    continue;
 
-            FitCanvas(tasks.Count);
+                _rowObjects.Add(CreateRow(tasks[i]));
+            }
+
+            LayoutElement rowsElement = _rows.GetComponent<LayoutElement>();
+            if (rowsElement != null)
+                rowsElement.preferredHeight = Mathf.Max(RowHeight, _rowObjects.Count * (RowHeight + 8f));
+
+            Resize(_rowObjects.Count);
         }
 
-        private GameObject CreateRow(TaskStatus task, int index)
+        private void Resize(int taskCount)
         {
-            bool done = task.State == LessonTaskState.Completed;
-            Color background = done
-                ? new Color(0.12f, 0.42f, 0.24f, 0.96f)
-                : new Color(0.1f, 0.14f, 0.2f, 0.94f);
+            if (_progressElement != null)
+                _progressElement.preferredHeight = 96f + taskCount * (RowHeight + 8f);
 
-            GameObject row = new GameObject("TaskRow_" + task.Id, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            if (_canvas == null)
+                return;
+
+            float height = 872f + taskCount * (RowHeight + 8f);
+            _canvas.sizeDelta = new Vector2(Width, height);
+            _canvas.localScale = new Vector3(0.00122f, 0.00122f, 0.00122f);
+
+            BoxCollider box = _canvas.GetComponent<BoxCollider>();
+            if (box != null)
+            {
+                box.center = Vector3.zero;
+                box.size = new Vector3(Width, height, 20f);
+            }
+        }
+
+        private GameObject CreateRow(TaskStatus task)
+        {
+            Color background;
+            string mark;
+            if (task.State == LessonTaskState.Completed)
+            {
+                background = new Color(0.14f, 0.42f, 0.28f, 0.98f);
+                mark = "Completada";
+            }
+            else if (task.State == LessonTaskState.Invalidated)
+            {
+                background = new Color(0.55f, 0.32f, 0.12f, 0.98f);
+                mark = "Invalidada";
+            }
+            else
+            {
+                background = new Color(0.16f, 0.22f, 0.3f, 0.98f);
+                mark = "Pendiente";
+            }
+
+            GameObject row = new GameObject("TaskRow_" + task.Id, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(LayoutElement));
             row.layer = _rows.gameObject.layer;
             row.transform.SetParent(_rows, false);
-            RectTransform rect = row.GetComponent<RectTransform>();
-            rect.anchorMin = new Vector2(0.5f, 1f);
-            rect.anchorMax = new Vector2(0.5f, 1f);
-            rect.pivot = new Vector2(0.5f, 1f);
-            rect.sizeDelta = new Vector2(280f, 38f);
-            rect.anchoredPosition = new Vector2(0f, -index * 42f);
+            LayoutElement element = row.GetComponent<LayoutElement>();
+            element.preferredHeight = RowHeight;
+            element.minHeight = RowHeight;
+            element.flexibleWidth = 1f;
 
             Image image = row.GetComponent<Image>();
             image.sprite = UiSprite();
             image.color = background;
             image.raycastTarget = false;
 
-            string mark = done ? "Lista" : "Pendiente";
-            CreateLabel(
-                row.transform,
+            TextMeshProUGUI label = CreateLabel(
+                row.GetComponent<RectTransform>(),
                 "Label",
-                task.Order + ". " + task.Title + "   " + mark,
-                Vector2.zero,
-                18f,
+                task.Order + ".  " + task.Title + "    " + mark,
+                22f,
                 _font,
-                264f);
+                FontStyles.Normal,
+                Color.white);
+            label.alignment = TextAlignmentOptions.MidlineLeft;
             return row;
         }
 
-        private void FitCanvas(int taskCount)
+        private static void Place(RectTransform canvas)
         {
-            if (_canvas == null)
+            Camera camera = Camera.main;
+            Vector3 board = new Vector3(0.05f, 1.02f, 0.02f);
+            Vector3 right = camera != null ? camera.transform.right : Vector3.right;
+            right.y = 0f;
+            if (right.sqrMagnitude < 0.001f)
+                right = Vector3.right;
+            right.Normalize();
+
+            Vector3 position = board + right * 1.02f + Vector3.up * 0.46f;
+            canvas.position = position;
+            if (camera == null)
                 return;
 
-            float height = Mathf.Max(_canvas.sizeDelta.y, 700f + Mathf.Max(0, taskCount - 5) * 42f);
-            float width = Mathf.Max(_canvas.sizeDelta.x, 980f);
-            if (_canvas.sizeDelta.x < width || _canvas.sizeDelta.y < height)
-                _canvas.sizeDelta = new Vector2(width, height);
-
-            BoxCollider box = _canvas.GetComponent<BoxCollider>();
-            if (box != null)
-                box.size = new Vector3(_canvas.sizeDelta.x, _canvas.sizeDelta.y, Mathf.Max(box.size.z, 20f));
+            Vector3 away = position - camera.transform.position;
+            if (away.sqrMagnitude > 0.001f)
+                canvas.rotation = Quaternion.LookRotation(away, Vector3.up);
         }
 
-        private static RectTransform CreateBar(Transform parent, string name, Vector2 position, float width, float height, Color color)
+        private static RectTransform CreateSection(RectTransform parent, string name, float height, Color color)
         {
-            GameObject bar = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-            bar.layer = parent.gameObject.layer;
-            bar.transform.SetParent(parent, false);
-            RectTransform rect = bar.GetComponent<RectTransform>();
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(width, height);
-            rect.anchoredPosition = position;
-            Image image = bar.GetComponent<Image>();
+            RectTransform section = CreateChild(parent, name);
+            Image image = section.gameObject.AddComponent<Image>();
             image.sprite = UiSprite();
             image.color = color;
             image.raycastTarget = false;
-            return rect;
+            VerticalLayoutGroup layout = section.gameObject.AddComponent<VerticalLayoutGroup>();
+            layout.padding = new RectOffset(18, 18, 12, 12);
+            layout.spacing = 6f;
+            layout.childAlignment = TextAnchor.UpperLeft;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childForceExpandWidth = true;
+            layout.childForceExpandHeight = false;
+            LayoutElement element = section.gameObject.AddComponent<LayoutElement>();
+            element.preferredHeight = height;
+            element.minHeight = height;
+            element.flexibleWidth = 1f;
+            return section;
+        }
+
+        private static RectTransform CreateRow(RectTransform parent, string name, float height)
+        {
+            RectTransform row = CreateChild(parent, name);
+            HorizontalLayoutGroup layout = row.gameObject.AddComponent<HorizontalLayoutGroup>();
+            layout.spacing = 12f;
+            layout.childAlignment = TextAnchor.MiddleCenter;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childForceExpandWidth = true;
+            layout.childForceExpandHeight = true;
+            LayoutElement element = row.gameObject.AddComponent<LayoutElement>();
+            element.preferredHeight = height;
+            element.minHeight = height;
+            element.flexibleWidth = 1f;
+            return row;
+        }
+
+        private static void AdoptText(RectTransform parent, TextMeshProUGUI text, float size, TMP_FontAsset font, FontStyles style, float height)
+        {
+            if (text == null)
+                return;
+
+            text.transform.SetParent(parent, false);
+            text.fontSize = size;
+            text.fontStyle = style;
+            text.alignment = TextAlignmentOptions.TopLeft;
+            text.textWrappingMode = TextWrappingModes.Normal;
+            text.overflowMode = TextOverflowModes.Overflow;
+            text.raycastTarget = false;
+            if (font != null)
+                text.font = font;
+
+            LayoutElement element = text.GetComponent<LayoutElement>();
+            if (element == null)
+                element = text.gameObject.AddComponent<LayoutElement>();
+
+            element.preferredHeight = height;
+            element.minHeight = height * 0.6f;
+            element.flexibleWidth = 1f;
+        }
+
+        private static void AdoptButton(RectTransform parent, Button button, TMP_FontAsset font)
+        {
+            if (button == null)
+                return;
+
+            button.transform.SetParent(parent, false);
+            Image image = button.targetGraphic as Image;
+            if (image == null)
+                image = button.GetComponent<Image>();
+            if (image != null)
+            {
+                image.raycastTarget = true;
+                if (image.color.a < 0.2f)
+                    image.color = new Color(0.18f, 0.32f, 0.48f, 1f);
+            }
+
+            LayoutElement element = button.GetComponent<LayoutElement>();
+            if (element == null)
+                element = button.gameObject.AddComponent<LayoutElement>();
+
+            element.preferredHeight = 64f;
+            element.minHeight = 64f;
+            element.flexibleWidth = 1f;
+
+            TextMeshProUGUI label = button.GetComponentInChildren<TextMeshProUGUI>(true);
+            if (label != null)
+            {
+                label.fontSize = 24f;
+                label.alignment = TextAlignmentOptions.Center;
+                label.raycastTarget = false;
+                if (font != null)
+                    label.font = font;
+            }
+        }
+
+        private static Button EnsureGateButton(RectTransform parent, Button current, string name, string label, TMP_FontAsset font)
+        {
+            Button button = current;
+            if (button == null)
+            {
+                Transform existing = parent.Find(name);
+                if (existing != null)
+                    button = existing.GetComponent<Button>();
+            }
+
+            if (button == null)
+            {
+                GameObject buttonObject = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
+                buttonObject.layer = parent.gameObject.layer;
+                buttonObject.transform.SetParent(parent, false);
+                Image image = buttonObject.GetComponent<Image>();
+                image.sprite = UiSprite();
+                image.color = new Color(0.16f, 0.24f, 0.36f, 1f);
+                image.raycastTarget = true;
+                button = buttonObject.GetComponent<Button>();
+                button.targetGraphic = image;
+                TextMeshProUGUI caption = CreateLabel(buttonObject.GetComponent<RectTransform>(), "Text", label, 24f, font, FontStyles.Bold, Color.white);
+                Stretch(caption.rectTransform);
+            }
+            else
+            {
+                button.transform.SetParent(parent, false);
+            }
+
+            AdoptButton(parent, button, font);
+            return button;
+        }
+
+        private static RectTransform CreateBar(RectTransform parent, string name, float height, Color color)
+        {
+            RectTransform bar = CreateChild(parent, name);
+            Image image = bar.gameObject.AddComponent<Image>();
+            image.sprite = UiSprite();
+            image.color = color;
+            image.raycastTarget = false;
+            LayoutElement element = bar.gameObject.AddComponent<LayoutElement>();
+            element.preferredHeight = height;
+            element.minHeight = height;
+            element.flexibleWidth = 1f;
+            return bar;
         }
 
         private static TextMeshProUGUI CreateLabel(
-            Transform parent,
+            RectTransform parent,
             string name,
             string text,
-            Vector2 position,
-            float fontSize,
+            float size,
             TMP_FontAsset font,
-            float width)
+            FontStyles style,
+            Color color)
         {
-            GameObject labelObject = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+            GameObject labelObject = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI), typeof(LayoutElement));
             labelObject.layer = parent.gameObject.layer;
             labelObject.transform.SetParent(parent, false);
-            RectTransform rect = labelObject.GetComponent<RectTransform>();
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(width, 32f);
-            rect.anchoredPosition = position;
+            LayoutElement element = labelObject.GetComponent<LayoutElement>();
+            element.preferredHeight = size + 16f;
+            element.flexibleWidth = 1f;
             TextMeshProUGUI label = labelObject.GetComponent<TextMeshProUGUI>();
             label.text = text;
-            label.fontSize = fontSize;
-            label.alignment = TextAlignmentOptions.Center;
-            label.color = Color.white;
+            label.fontSize = size;
+            label.fontStyle = style;
+            label.color = color;
+            label.alignment = TextAlignmentOptions.MidlineLeft;
             label.raycastTarget = false;
-            label.textWrappingMode = TextWrappingModes.NoWrap;
+            label.textWrappingMode = TextWrappingModes.Normal;
             label.overflowMode = TextOverflowModes.Overflow;
             if (font != null)
                 label.font = font;
             return label;
         }
 
-        private static Button CreateButton(Transform parent, string name, string label, Vector2 position, TMP_FontAsset font)
+        private static Image CreateStretch(RectTransform parent, string name, Color color)
         {
-            Transform existing = parent.Find(name);
-            if (existing != null)
-            {
-                Button found = existing.GetComponent<Button>();
-                if (found != null)
-                    return found;
-            }
-
-            GameObject buttonObject = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
-            buttonObject.layer = parent.gameObject.layer;
-            buttonObject.transform.SetParent(parent, false);
-            RectTransform rect = buttonObject.GetComponent<RectTransform>();
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(180f, 36f);
-            rect.anchoredPosition = position;
-
-            Image image = buttonObject.GetComponent<Image>();
+            RectTransform rect = CreateChild(parent, name);
+            Stretch(rect);
+            Image image = rect.gameObject.AddComponent<Image>();
             image.sprite = UiSprite();
-            image.color = new Color(0.18f, 0.34f, 0.48f, 0.96f);
-            image.raycastTarget = true;
+            image.color = color;
+            return image;
+        }
 
-            Button button = buttonObject.GetComponent<Button>();
-            button.targetGraphic = image;
+        private static RectTransform CreateChild(RectTransform parent, string name)
+        {
+            GameObject child = new GameObject(name, typeof(RectTransform));
+            child.layer = parent.gameObject.layer;
+            child.transform.SetParent(parent, false);
+            return child.GetComponent<RectTransform>();
+        }
 
-            CreateLabel(buttonObject.transform, "Text", label, Vector2.zero, 20f, font, 168f);
-            return button;
+        private static void Stretch(RectTransform rect)
+        {
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+            rect.pivot = new Vector2(0.5f, 0.5f);
+        }
+
+        private static void DestroyIfPresent(Transform parent, string name)
+        {
+            Transform child = parent.Find(name);
+            if (child != null)
+                Object.Destroy(child.gameObject);
         }
 
         private static Sprite _sprite;
